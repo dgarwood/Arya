@@ -1,6 +1,6 @@
 {
-  "shell-version": ["3.4"],
-  "version": 1,
+  "shell-version": ["3.8", "3.10"],
+  "version": 2,
   "uuid": "arya@jcrussell.github.com",
   "name": "Automatic Recorder of Your Activities",
   "description": "Records daily activity to help track where your time goes.",

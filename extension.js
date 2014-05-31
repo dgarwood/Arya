@@ -22,7 +22,7 @@ const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
-const ScreenSaver = imports.misc.screenSaver;
+// const ScreenSaver = imports.misc.screenSaver;
 
 const APPMENU_ICON_SIZE = 22;
 
@@ -57,7 +57,7 @@ ActivityRecorder.prototype = {
     });
     let icon = new St.Icon({
       icon_name: 'system-run',
-      icon_type: St.IconType.SYMBOLIC,
+      // icon_type: St.IconType.SYMBOLIC,
       style_class: 'system-status-icon'
     });
 
@@ -66,6 +66,8 @@ ActivityRecorder.prototype = {
 
     // Refresh the menu (with updated times) every time it opens
     this.menu.connect('open-state-changed', Lang.bind(this, this._onMenuOpenStateChanged));
+
+    Main.panel.addToStatusArea('arya', this);
 
     this._reset();
   },
@@ -122,14 +124,14 @@ ActivityRecorder.prototype = {
   },
 
   // Callback for when screensaver state changed
-  _onScreenSaverChanged: function(object, senderName, [isActive]) {
-    if(!isActive) { // Changed from screen saver to awake
-      this._swap_time = Date.now();
-    }
-    else { // Changed from awake to screen saver
-      this._recordTime();
-    }
-  },
+  //~ _onScreenSaverChanged: function(object, senderName, [isActive]) {
+    //~ if(!isActive) { // Changed from screen saver to awake
+      //~ this._swap_time = Date.now();
+    //~ }
+    //~ else { // Changed from awake to screen saver
+      //~ this._recordTime();
+    //~ }
+  //~ },
 
   // Callback for when the menu is opened or closed
   _onMenuOpenStateChanged: function(menu, isOpen) {
@@ -172,27 +174,29 @@ ActivityRecorder.prototype = {
   enable: function() {
     // Add menu to panel
     Main.panel._rightBox.insert_child_at_index(this.actor, 0);
-    Main.panel._menus.addMenu(this.menu);
+//    Main.panel._menus.addMenu(this.menu);
+    Main.panel.menuManager.addMenu(this.menu);
 
     // Connect to the tracker
     let tracker = Shell.WindowTracker.get_default();
     this._tracker_id = tracker.connect("notify::focus-app", Lang.bind(this, this._onFocusChanged));
 
     // Add Listener for screensaver
-    this._screenSaverProxy = new ScreenSaver.ScreenSaverProxy();
-    this._screensaver_id = this._screenSaverProxy.connectSignal('ActiveChanged', Lang.bind(this, this._onScreenSaverChanged));
+   // this._screenSaverProxy = new ScreenSaver.ScreenSaverProxy();
+   // this._screensaver_id = this._screenSaverProxy.connectSignal('ActiveChanged', Lang.bind(this, this._onScreenSaverChanged));
   },
 
   disable: function() {
     // Remove menu from panel
-    Main.panel._menus.removeMenu(this.menu);
+//    Main.panel._menus.removeMenu(this.menu);
+    Main.panel.menuManager.removeMenu(this.menu);
     Main.panel._rightBox.remove_actor(this.actor);
 
     // Remove tracker
     let tracker = Shell.WindowTracker.get_default();
     tracker.disconnect(this._tracker_id);
 
-    this._screenSaverProxy.disconnect(this._screensaver_id);
+   // this._screenSaverProxy.disconnect(this._screensaver_id);
   }
 }
 
@@ -226,9 +230,12 @@ AppUsageMenuItem.prototype = {
     this.label2 = new St.Label({ text: text2 });
     this.icon = icon;
 
-    this.addActor(this.label1);
-    this.addActor(this.icon, { align: St.Align.END });
-    this.addActor(this.label2, { align: St.Align.END });
+    //~ this.addActor(this.label1);
+    //~ this.addActor(this.icon, { align: St.Align.END });
+    //~ this.addActor(this.label2, { align: St.Align.END });
+    this.actor.add(this.label1);
+    this.actor.add(this.icon, { align: St.Align.END });
+    this.actor.add(this.label2, { align: St.Align.END });
   }
 };
 
@@ -246,8 +253,11 @@ TotalUsageMenuItem.prototype = {
     this.label2 = new St.Label({ text: "" });
     this.label3 = new St.Label({ text: time });
 
-    this.addActor(this.label1);
-    this.addActor(this.label2, { align: St.Align.END });
-    this.addActor(this.label3, { align: St.Align.END });
+    //~ this.addActor(this.label1);
+    //~ this.addActor(this.label2, { align: St.Align.END });
+    //~ this.addActor(this.label3, { align: St.Align.END });
+    this.actor.add(this.label1);
+    this.actor.add(this.label2, { align: St.Align.END });
+    this.actor.add(this.label3, { align: St.Align.END });
   }
 };
