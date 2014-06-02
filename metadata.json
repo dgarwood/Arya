@@ -1,5 +1,5 @@
 {
-  "shell-version": ["3.8", "3.10"],
+  "shell-version": ["3.10"],
   "version": 2,
   "uuid": "arya@jcrussell.github.com",
   "name": "Automatic Recorder of Your Activities",
