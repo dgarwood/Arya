@@ -17,12 +17,12 @@
  */
 
 const Lang = imports.lang;
+const Meta = imports.gi.Meta;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
-// const ScreenSaver = imports.misc.screenSaver;
 
 const APPMENU_ICON_SIZE = 22;
 
@@ -30,6 +30,10 @@ const APPMENU_ICON_SIZE = 22;
  * TODO:
  * * Save/Load to/from a file
  * * Add interface to see pretty graphs over time
+ * * Doesn't work if number of workspaces changes after starting the extension
+ * * Dont count idle time
+ * * Break time according to day, week, month...
+ * * Introduce mapping from applications/workspaces to projects
  */
 
 function init() {
@@ -55,6 +59,7 @@ ActivityRecorder.prototype = {
       y_fill: false,
       track_hover: true
     });
+
     let icon = new St.Icon({
       icon_name: 'system-run',
       // icon_type: St.IconType.SYMBOLIC,
@@ -75,8 +80,14 @@ ActivityRecorder.prototype = {
   _reset: function() {
     // Setup state
     this._usage = {};
-    this._updateState();
     this._swap_time = Date.now();
+
+    this._workspaceTime = [];
+    for(let i = 0; i < global.screen.n_workspaces; i++) {
+        this._workspaceTime[i] = 0;
+    }
+
+    this._updateState();
   },
 
   // Recalculate the menu which shows time for each app
@@ -104,17 +115,23 @@ ActivityRecorder.prototype = {
       }
     });
 
-    if(count == 0) {
-      menu.addMenuItem(new PopupMenu.PopupMenuItem("Insufficient History... get to work!"));
-    }
-    else { // Add Total and Reset
-      menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-      menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
+		menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-      item = new PopupMenu.PopupMenuItem(_("Clear History"));
-      item.connect('activate', Lang.bind(this, this._reset));
-      this.menu.addMenuItem(item);
-    }
+		// Refresh workspace time
+		for(let i = 0; i < global.screen.n_workspaces; i++) {
+			let mins = Math.round(this._workspaceTime[i]);
+			let str = makeTimeStrFromMins(mins);
+			let workspaceName = Meta.prefs_get_workspace_name(i);
+			menu.addMenuItem(new WorkspaceTimeMenuItem(workspaceName, str));
+		};
+
+    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
+
+    let item = new PopupMenu.PopupMenuItem(_("Clear History"));
+    item.connect('activate', Lang.bind(this, this._reset));
+    this.menu.addMenuItem(item);
+ 
   },
 
   // Callback for when app focus changes
@@ -122,16 +139,6 @@ ActivityRecorder.prototype = {
     this._refresh();
     this._updateState();
   },
-
-  // Callback for when screensaver state changed
-  //~ _onScreenSaverChanged: function(object, senderName, [isActive]) {
-    //~ if(!isActive) { // Changed from screen saver to awake
-      //~ this._swap_time = Date.now();
-    //~ }
-    //~ else { // Changed from awake to screen saver
-      //~ this._recordTime();
-    //~ }
-  //~ },
 
   // Callback for when the menu is opened or closed
   _onMenuOpenStateChanged: function(menu, isOpen) {
@@ -143,6 +150,7 @@ ActivityRecorder.prototype = {
   // Update the current app and touch the swap time
   _updateState: function() {
     this._curr_app = this._getCurrentAppId();
+    this._curr_workspace = global.screen.get_active_workspace().index();
   },
 
   // Get the current app or null
@@ -157,46 +165,40 @@ ActivityRecorder.prototype = {
     return focusedApp.get_id();
   },
 
-  // Update the total time for the current app
+  // Update the total time for the current app & workspace
   _recordTime: function() {
     let swap_time = this._swap_time;
     this._swap_time = Date.now();
 
+    let mins = (Date.now() - swap_time) / 1000 / 60;
+
     // No previous app
-    if(this._curr_app == null) {
-      return;
+    if (this._curr_app != null) {
+        this._usage[this._curr_app] = (this._usage[this._curr_app] || 0) + mins;
     }
 
-    let mins = (Date.now() - swap_time) / 1000 / 60;
-    this._usage[this._curr_app] = (this._usage[this._curr_app] || 0) + mins;
+    this._workspaceTime[this._curr_workspace] += mins;
   },
 
   enable: function() {
     // Add menu to panel
     Main.panel._rightBox.insert_child_at_index(this.actor, 0);
-//    Main.panel._menus.addMenu(this.menu);
     Main.panel.menuManager.addMenu(this.menu);
 
     // Connect to the tracker
     let tracker = Shell.WindowTracker.get_default();
     this._tracker_id = tracker.connect("notify::focus-app", Lang.bind(this, this._onFocusChanged));
 
-    // Add Listener for screensaver
-   // this._screenSaverProxy = new ScreenSaver.ScreenSaverProxy();
-   // this._screensaver_id = this._screenSaverProxy.connectSignal('ActiveChanged', Lang.bind(this, this._onScreenSaverChanged));
   },
 
   disable: function() {
     // Remove menu from panel
-//    Main.panel._menus.removeMenu(this.menu);
     Main.panel.menuManager.removeMenu(this.menu);
     Main.panel._rightBox.remove_actor(this.actor);
 
     // Remove tracker
     let tracker = Shell.WindowTracker.get_default();
     tracker.disconnect(this._tracker_id);
-
-   // this._screenSaverProxy.disconnect(this._screensaver_id);
   }
 }
 
@@ -230,11 +232,26 @@ AppUsageMenuItem.prototype = {
     this.label2 = new St.Label({ text: text2 });
     this.icon = icon;
 
-    //~ this.addActor(this.label1);
-    //~ this.addActor(this.icon, { align: St.Align.END });
-    //~ this.addActor(this.label2, { align: St.Align.END });
     this.actor.add(this.label1);
     this.actor.add(this.icon, { align: St.Align.END });
+    this.actor.add(this.label2, { align: St.Align.END });
+  }
+};
+
+function WorkspaceTimeMenuItem() {
+  this._init.apply(this, arguments);
+}
+
+WorkspaceTimeMenuItem.prototype = {
+  __proto__: PopupMenu.PopupBaseMenuItem.prototype,
+
+  _init: function(text1, text2, params) {
+    PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+
+    this.label1 = new St.Label({ text: text1 });
+    this.label2 = new St.Label({ text: text2 });
+
+    this.actor.add(this.label1);
     this.actor.add(this.label2, { align: St.Align.END });
   }
 };
@@ -253,9 +270,6 @@ TotalUsageMenuItem.prototype = {
     this.label2 = new St.Label({ text: "" });
     this.label3 = new St.Label({ text: time });
 
-    //~ this.addActor(this.label1);
-    //~ this.addActor(this.label2, { align: St.Align.END });
-    //~ this.addActor(this.label3, { align: St.Align.END });
     this.actor.add(this.label1);
     this.actor.add(this.label2, { align: St.Align.END });
     this.actor.add(this.label3, { align: St.Align.END });
