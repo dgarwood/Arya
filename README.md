@@ -29,6 +29,8 @@ don't think that is enough so expect changes in the future.
 * Break time according to day, week, month...
 * Introduce better mapping from applications/workspaces to projects, i.e. via regex
 * Integrate with GTG and Hamster
+* Make it configurable so that the user can define what to track
+* Take into account idle times
 
 ## Install Instructions:
 
