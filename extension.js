@@ -16,6 +16,7 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
 const Meta = imports.gi.Meta;
 const Main = imports.ui.main;
@@ -248,11 +249,15 @@ WorkspaceTimeMenuItem.prototype = {
   _init: function(text1, text2, params) {
     PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
-    this.label1 = new St.Label({ text: text1 });
-    this.label2 = new St.Label({ text: text2 });
+    this._topBox = new St.BoxLayout();
 
-    this.actor.add(this.label1);
-    this.actor.add(this.label2, { align: St.Align.END });
+    this.label1 = new St.Label({ text: text1, width: 300 });
+    this.label2 = new St.Label({ text: text2, width: 100 });
+
+    this._topBox.add(this.label1);
+    this._topBox.add(this.label2);
+
+    this.actor.add(this._topBox);
   }
 };
 
