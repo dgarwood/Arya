@@ -79,16 +79,26 @@ ActivityRecorder.prototype = {
   },
 
   _reset: function() {
-    // Setup state
+    // Time spent in certain applications
     this._usage = {};
-    this._swap_time = Date.now();
 
+    // Tracking time spent in a single workspace
     this._workspaceTime = [];
     for(let i = 0; i < global.screen.n_workspaces; i++) {
         this._workspaceTime[i] = 0;
     }
 
+    // Record current time for metering
+    this._swap_time = Date.now();
+
     this._updateState();
+    this._refresh();
+  },
+
+  // Update the current app and touch the swap time
+  _updateState: function() {
+    this._curr_app = this._getCurrentAppId();
+    this._curr_workspace = global.screen.get_active_workspace().index();
   },
 
   // Recalculate the menu which shows time for each app
@@ -146,12 +156,6 @@ ActivityRecorder.prototype = {
     if(isOpen) { // Changed from closed to open
       this._refresh();
     }
-  },
-
-  // Update the current app and touch the swap time
-  _updateState: function() {
-    this._curr_app = this._getCurrentAppId();
-    this._curr_workspace = global.screen.get_active_workspace().index();
   },
 
   // Get the current app or null
@@ -229,13 +233,17 @@ AppUsageMenuItem.prototype = {
   _init: function(icon, text1, text2, params) {
     PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
+    this._topBox = new St.BoxLayout();
+
     this.label1 = new St.Label({ text: text1 });
     this.label2 = new St.Label({ text: text2 });
     this.icon = icon;
 
-    this.actor.add(this.label1);
-    this.actor.add(this.icon, { align: St.Align.END });
-    this.actor.add(this.label2, { align: St.Align.END });
+    this._topBox.add(this.icon, { align: St.Align.END });
+    this._topBox.add(this.label1);
+    this._topBox.add(this.label2, { align: St.Align.END });
+
+    this.actor.add(this._topBox);
   }
 };
 
@@ -271,12 +279,14 @@ TotalUsageMenuItem.prototype = {
   _init: function(time, params) {
     PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
-    this.label1 = new St.Label({ text: "Total" });
-    this.label2 = new St.Label({ text: "" });
-    this.label3 = new St.Label({ text: time });
+    this._topBox = new St.BoxLayout();
 
-    this.actor.add(this.label1);
-    this.actor.add(this.label2, { align: St.Align.END });
-    this.actor.add(this.label3, { align: St.Align.END });
+    this.label1 = new St.Label({ text: "Total", width: 300 });
+    this.label2 = new St.Label({ text: time,    width: 100 });
+
+    this._topBox.add(this.label1);
+    this._topBox.add(this.label2);
+
+    this.actor.add(this._topBox);
   }
-};
+} -l
