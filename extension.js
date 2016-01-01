@@ -64,7 +64,8 @@ ActivityRecorder.prototype = {
     let icon = new St.Icon({
       icon_name: 'system-run',
       // icon_type: St.IconType.SYMBOLIC,
-      style_class: 'system-status-icon'
+      style_class: 'system-status-icon',
+      width: 50
     });
 
     this.button.set_child(icon);
@@ -78,55 +79,66 @@ ActivityRecorder.prototype = {
     this._reset();
   },
 
-  _reset: function() {
-    // Time spent in certain applications
-    this._usage = {};
+	_reset: function() {
 
-    // Tracking time spent in a single workspace
-    this._workspaceTime = [];
-    for(let i = 0; i < global.screen.n_workspaces; i++) {
-        this._workspaceTime[i] = 0;
-    }
+		// Time spent in certain applications
+		this._usage = {};
 
-    // Record current time for metering
-    this._swap_time = Date.now();
+		// Tracking time spent in a single workspace
+		this._workspaceTime = [];
+		for(let i = 0; i < global.screen.n_workspaces; i++) {
+			this._workspaceTime[i] = 0;
+		}
 
-    this._updateState();
-    this._refresh();
-  },
+		// Time spent on certain projects
+		this._projects = {};
 
-  // Update the current app and touch the swap time
-  _updateState: function() {
-    this._curr_app = this._getCurrentAppId();
-    this._curr_workspace = global.screen.get_active_workspace().index();
-  },
+		// Record current time for metering
+		this._swap_time = Date.now();
 
-  // Recalculate the menu which shows time for each app
-  _refresh: function() {
-    this._recordTime();
+		this._updateState();
+		this._refreshMenu();
+	},
 
-    let menu = this.menu;
-    menu.removeAll();
+	// Update the current app and touch the swap time
+	_updateState: function() {
+		this._curr_app = this._getCurrentAppId();
+		this._curr_workspace = global.screen.get_active_workspace().index();
 
-    let usage = this._usage;
-    let ids = Object.keys(usage).sort(function(x,y) { return (usage[y] - usage[x]) });
-    let app_system = Shell.AppSystem.get_default();
+		this._curr_project = null;
+		let win = global.display.focus_window;
+		if (win) {
+			this._curr_project = win.title;
+		}
+	},
 
-    let count = 0;
-    let total = 0;
-    ids.forEach(function(id) {
-      if(usage[id] < 1) return;
-      let app = app_system.lookup_app(id);
-      if(app) {
-        let mins = Math.round(usage[id]);
-        let icon = app.create_icon_texture(APPMENU_ICON_SIZE);
-        let str = makeTimeStrFromMins(mins);
-        menu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
-        count += 1; total += mins;
-      }
-    });
+	// Recalculate the menu which shows time for each app
+	_refreshMenu: function() {
+		let menu = this.menu;
+		menu.removeAll();
 
-		menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+		let usage = this._usage;
+		let ids = Object.keys(usage).sort(function(x,y) { return (usage[y] - usage[x]) });
+
+		let app_system = Shell.AppSystem.get_default();
+
+		let count = 0;
+		let total = 0;
+		ids.forEach(function(id) {
+			if(usage[id] < 1) return;
+			let app = app_system.lookup_app(id);
+			if(app) {
+				let mins = Math.round(usage[id]);
+				let icon = app.create_icon_texture(APPMENU_ICON_SIZE);
+				let str = makeTimeStrFromMins(mins);
+				menu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
+				count += 1; total += mins;
+			}
+		});
+
+		if (ids.length > 0) {
+			menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+		}
 
 		// Refresh workspace time
 		for(let i = 0; i < global.screen.n_workspaces; i++) {
@@ -136,27 +148,41 @@ ActivityRecorder.prototype = {
 			menu.addMenuItem(new WorkspaceTimeMenuItem(workspaceName, str));
 		};
 
-    menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-    menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
+		menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-    let item = new PopupMenu.PopupMenuItem(_("Clear History"));
-    item.connect('activate', Lang.bind(this, this._reset));
-    this.menu.addMenuItem(item);
+		let projects = this._projects;
+		let ids = Object.keys(projects);
+		ids.forEach(function(id) {
+			let mins = Math.round(projects[id]);
+			let str = makeTimeStrFromMins(mins);
+			menu.addMenuItem(new ProjectMenuItem(id, str));
+		});
+
+		if (ids.length > 0) {
+			menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+		}
+		menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
+
+		let item = new PopupMenu.PopupMenuItem(_("Clear History"));
+		item.connect('activate', Lang.bind(this, this._reset));
+		this.menu.addMenuItem(item);
  
-  },
+	},
 
-  // Callback for when app focus changes
-  _onFocusChanged: function() {
-    this._refresh();
-    this._updateState();
-  },
+	// Callback for when app focus changes
+	_onFocusChanged: function() {
+		this._recordTime();
+		this._updateState();
+		this._refreshMenu();
+	},
 
-  // Callback for when the menu is opened or closed
-  _onMenuOpenStateChanged: function(menu, isOpen) {
-    if(isOpen) { // Changed from closed to open
-      this._refresh();
-    }
-  },
+	// Callback for when the menu is opened or closed
+	_onMenuOpenStateChanged: function(menu, isOpen) {
+		if(isOpen) { // Changed from closed to open
+			this._updateState();
+			this._refreshMenu();
+		}
+	},
 
   // Get the current app or null
   _getCurrentAppId: function() {
@@ -170,20 +196,23 @@ ActivityRecorder.prototype = {
     return focusedApp.get_id();
   },
 
-  // Update the total time for the current app & workspace
-  _recordTime: function() {
-    let swap_time = this._swap_time;
-    this._swap_time = Date.now();
+	// Update the total time for the current app & workspace
+	_recordTime: function() {
+		let swap_time = this._swap_time;
+		this._swap_time = Date.now();
 
-    let mins = (Date.now() - swap_time) / 1000 / 60;
+		let mins = (this._swap_time - swap_time) / 1000 / 60;
 
-    // No previous app
-    if (this._curr_app != null) {
-        this._usage[this._curr_app] = (this._usage[this._curr_app] || 0) + mins;
-    }
+		if (this._curr_app != null) {
+			this._usage[this._curr_app] = (this._usage[this._curr_app] || 0) + mins;
+		}
 
-    this._workspaceTime[this._curr_workspace] += mins;
-  },
+		this._workspaceTime[this._curr_workspace] += mins;
+
+		if (this._curr_project != null) {
+			this._projects[this._curr_project] = (this._projects[this._curr_project] || 0) + mins;
+		}
+	},
 
   enable: function() {
     // Add menu to panel
@@ -235,13 +264,13 @@ AppUsageMenuItem.prototype = {
 
     this._topBox = new St.BoxLayout();
 
-    this.label1 = new St.Label({ text: text1 });
-    this.label2 = new St.Label({ text: text2 });
+    this.label1 = new St.Label({ text: text1, width: 250 });
+    this.label2 = new St.Label({ text: text2, width: 100 });
     this.icon = icon;
 
-    this._topBox.add(this.icon, { align: St.Align.END });
+    this._topBox.add(this.icon);
     this._topBox.add(this.label1);
-    this._topBox.add(this.label2, { align: St.Align.END });
+    this._topBox.add(this.label2);
 
     this.actor.add(this._topBox);
   }
@@ -252,6 +281,28 @@ function WorkspaceTimeMenuItem() {
 }
 
 WorkspaceTimeMenuItem.prototype = {
+  __proto__: PopupMenu.PopupBaseMenuItem.prototype,
+
+  _init: function(text1, text2, params) {
+    PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+
+    this._topBox = new St.BoxLayout();
+
+    this.label1 = new St.Label({ text: text1, width: 300 });
+    this.label2 = new St.Label({ text: text2, width: 100 });
+
+    this._topBox.add(this.label1);
+    this._topBox.add(this.label2);
+
+    this.actor.add(this._topBox);
+  }
+};
+
+function ProjectMenuItem() {
+  this._init.apply(this, arguments);
+}
+
+ProjectMenuItem.prototype = {
   __proto__: PopupMenu.PopupBaseMenuItem.prototype,
 
   _init: function(text1, text2, params) {
@@ -289,4 +340,4 @@ TotalUsageMenuItem.prototype = {
 
     this.actor.add(this._topBox);
   }
-} -l
+}
