@@ -27,6 +27,53 @@ const St = imports.gi.St;
 
 const APPMENU_ICON_SIZE = 22;
 
+/*
+ * This is a map that converts a window title given as a regexp into
+ * a project name.
+ */
+const mapWindowTitleToProject = {
+	"Arya Plugin Development":
+		[ "arya\@sgros.github.com", ],
+	"Reading ZEMRIS EMail":
+		[ "Inbox - ZEMRIS", ],
+	"Facebook":
+		[ "Facebook", ],
+	"MIF":
+		[ "mif", "facebook", ],
+	"eBook Download":
+		[ "ebook download", "/data/knjige/" ],
+	"Browsing":
+		[ "Mozilla Firefox", ],
+	"Unsorted":
+		[ ".*", ],
+};
+
+/*
+ * When mapping window title to project using a map, this is the
+ * sequence in which the conversion should take place. Note that
+ * we have to use additional list because hash doesn't keep the
+ * order!
+ */
+const mapWindowTitleToProjectSequence = [
+	"Arya Plugin Development",
+	"Facebook",
+	"MIF",
+	"Browsing",
+	"Unsorted",
+];
+
+/*
+ * The following list contains regexes of window titles that should be
+ * ignored, i.e. current project should not be changed. This is used,
+ * for example, when you are in Firefox browser and you open a modal
+ * window with a list of downloads. This window will have title "Library"
+ * and obviously it should be ignored, i.e. you should still be in the
+ * same project.
+ */
+const windowTitlesToIgnore = [
+	"Library",
+];
+
 /**
  * TODO:
  * * Save/Load to/from a file
@@ -41,45 +88,46 @@ function init() {
   return new ActivityRecorder();
 }
 
-function ActivityRecorder() {
-  this._init();
-}
+const ActivityRecorder = new Lang.Class({
+	Name: 'ActivityRecorder',
+	Extends: PanelMenu.Button,
 
-ActivityRecorder.prototype = {
-  __proto__: PanelMenu.Button.prototype,
+	_init: function() {
+		log("_init()");
 
-  _init: function() {
-    // Setup the menu button
-    PanelMenu.Button.prototype._init.call(this, St.Align.START);
+		// Setup the menu button
+		PanelMenu.Button.prototype._init.call(this, St.Align.START);
 
-    this.button = new St.Bin({
-      style_class: 'panel-button',
-      reactive: true,
-      can_focus: true,
-      x_fill: true,
-      y_fill: false,
-      track_hover: true
-    });
+		this.button = new St.Bin({
+			style_class: 'panel-button',
+			reactive: true,
+			can_focus: true,
+			x_fill: true,
+			y_fill: false,
+			track_hover: true
+		});
 
-    let icon = new St.Icon({
-      icon_name: 'system-run',
-      // icon_type: St.IconType.SYMBOLIC,
-      style_class: 'system-status-icon',
-      width: 50
-    });
+		let icon = new St.Icon({
+			icon_name: 'system-run',
+			// icon_type: St.IconType.SYMBOLIC,
+			style_class: 'system-status-icon',
+			width: 50
+		});
 
-    this.button.set_child(icon);
-    this.actor.add_actor(this.button);
+		this.button.set_child(icon);
+		this.actor.add_actor(this.button);
 
-    // Refresh the menu (with updated times) every time it opens
-    this.menu.connect('open-state-changed', Lang.bind(this, this._onMenuOpenStateChanged));
+		// Refresh the menu (with updated times) every time it opens
+		this.menu.connect('open-state-changed', Lang.bind(this, this._onMenuOpenStateChanged));
 
-    Main.panel.addToStatusArea('arya', this);
+		Main.panel.addToStatusArea('arya', this);
 
-    this._reset();
-  },
+		this._reset();
+
+	},
 
 	_reset: function() {
+		log("_reset()");
 
 		// Time spent in certain applications
 		this._usage = {};
@@ -102,20 +150,56 @@ ActivityRecorder.prototype = {
 
 	// Update the current app and touch the swap time
 	_updateState: function() {
+		log("_updateState()");
+
 		this._curr_app = this._getCurrentAppId();
 		this._curr_workspace = global.screen.get_active_workspace().index();
 
 		this._curr_project = null;
 		let win = global.display.focus_window;
-		if (win) {
-			this._curr_project = win.title;
+		if (win != null && !this.ignoreWindowTitle(win.title)) {
+			this._curr_project = this.mapWindowTitleToProject(win.title);
+			// log("New project: " + this._curr_project);
 		}
+	},
+
+	mapWindowTitleToProject: function(windowTitle) {
+		log("mapWindowTitleToProject(" + windowTitle + ")");
+
+                for(let i = 0; i < mapWindowTitleToProjectSequence.length; i++) {
+			let project = mapWindowTitleToProjectSequence[i];
+			let regexes = mapWindowTitleToProject[project];
+
+			for( let j = 0; j < regexes.length; j++) {
+				if (windowTitle.match(regexes[j])) {
+					// log(project);
+					return project;
+				}
+			}
+		};
+
+		return windowTitle;
+	},
+
+	ignoreWindowTitle: function(windowTitle) {
+		log("ignoreWindowTitle("+ windowTitle + ")");
+
+                for(let i = 0; i < windowTitlesToIgnore.length; i++) {
+			if (windowTitle.match(windowTitlesToIgnore[i]))
+				return true;
+		};
+
+		return false;
 	},
 
 	// Recalculate the menu which shows time for each app
 	_refreshMenu: function() {
+		log("_refreshMenu");
+
 		let menu = this.menu;
 		menu.removeAll();
+
+		let applicationsSubmenu = new PopupMenu.PopupSubMenuMenuItem('Applications', true);
 
 		let usage = this._usage;
 		let ids = Object.keys(usage).sort(function(x,y) { return (usage[y] - usage[x]) });
@@ -131,30 +215,36 @@ ActivityRecorder.prototype = {
 				let mins = Math.round(usage[id]);
 				let icon = app.create_icon_texture(APPMENU_ICON_SIZE);
 				let str = makeTimeStrFromMins(mins);
-				menu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
+				applicationsSubmenu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
 				count += 1; total += mins;
 			}
 		});
 
 		if (ids.length > 0) {
-			menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+			menu.addMenuItem(applicationsSubmenu);
 		}
+
+		let workspacesSubmenu = new PopupMenu.PopupSubMenuMenuItem('Workspaces', true);
 
 		// Refresh workspace time
 		for(let i = 0; i < global.screen.n_workspaces; i++) {
 			let mins = Math.round(this._workspaceTime[i]);
 			let str = makeTimeStrFromMins(mins);
 			let workspaceName = Meta.prefs_get_workspace_name(i);
-			menu.addMenuItem(new WorkspaceTimeMenuItem(workspaceName, str));
+			workspacesSubmenu.menu.addMenuItem(new WorkspaceTimeMenuItem(workspaceName, str));
 		};
 
+		menu.addMenuItem(workspacesSubmenu);
 		menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
 		let projects = this._projects;
 		let ids = Object.keys(projects);
+		// log('ids = ' + ids.length);
 		ids.forEach(function(id) {
 			let mins = Math.round(projects[id]);
 			let str = makeTimeStrFromMins(mins);
+			// log('mins = ' + mins);
+			// log('str = ' + str);
 			menu.addMenuItem(new ProjectMenuItem(id, str));
 		});
 
@@ -165,39 +255,50 @@ ActivityRecorder.prototype = {
 
 		let item = new PopupMenu.PopupMenuItem(_("Clear History"));
 		item.connect('activate', Lang.bind(this, this._reset));
-		this.menu.addMenuItem(item);
+		menu.addMenuItem(item);
  
 	},
 
 	// Callback for when app focus changes
 	_onFocusChanged: function() {
+		log("_onFocusChanged()");
+
 		this._recordTime();
 		this._updateState();
+		this._recordTime();
 		this._refreshMenu();
 	},
 
 	// Callback for when the menu is opened or closed
 	_onMenuOpenStateChanged: function(menu, isOpen) {
-		if(isOpen) { // Changed from closed to open
+		log("_onMenuOpenStateChanged(" + menu + ", " + isOpen + ")");
+
+		if (isOpen) { // Changed from closed to open
+			this._recordTime();
 			this._updateState();
+			this._recordTime();
 			this._refreshMenu();
 		}
 	},
 
-  // Get the current app or null
-  _getCurrentAppId: function() {
-    let tracker = Shell.WindowTracker.get_default();
-    let focusedApp = tracker.focus_app;
-    // Not an application window
-    if(!focusedApp) {
-      return null;
-    }
+	// Get the current app or null
+	_getCurrentAppId: function() {
+		log("_getCurrentAppId()");
 
-    return focusedApp.get_id();
-  },
+		let tracker = Shell.WindowTracker.get_default();
+		let focusedApp = tracker.focus_app;
+		// Not an application window
+		if(!focusedApp) {
+			return null;
+		}
+
+		return focusedApp.get_id();
+	},
 
 	// Update the total time for the current app & workspace
 	_recordTime: function() {
+		log("_recordTime()");
+
 		let swap_time = this._swap_time;
 		this._swap_time = Date.now();
 
@@ -214,130 +315,129 @@ ActivityRecorder.prototype = {
 		}
 	},
 
-  enable: function() {
-    // Add menu to panel
-    Main.panel._rightBox.insert_child_at_index(this.actor, 0);
-    Main.panel.menuManager.addMenu(this.menu);
+	enable: function() {
+		log("enable()");
 
-    // Connect to the tracker
-    let tracker = Shell.WindowTracker.get_default();
-    this._tracker_id = tracker.connect("notify::focus-app", Lang.bind(this, this._onFocusChanged));
+		// Add menu to panel
+		Main.panel._rightBox.insert_child_at_index(this.actor, 0);
+		Main.panel.menuManager.addMenu(this.menu);
 
-  },
+		// Connect to the tracker
+		// let tracker = Shell.WindowTracker.get_default();
+		// this._tracker_id = tracker.connect("notify::focus-window", Lang.bind(this, this._onFocusChanged));
 
-  disable: function() {
-    // Remove menu from panel
-    Main.panel.menuManager.removeMenu(this.menu);
-    Main.panel._rightBox.remove_actor(this.actor);
+		this._focusWindowNotifyId = global.display.connect('notify::focus-window',
+				Lang.bind(this, this._onMenuOpenStateChanged));
+	},
 
-    // Remove tracker
-    let tracker = Shell.WindowTracker.get_default();
-    tracker.disconnect(this._tracker_id);
-  }
-}
+	disable: function() {
+		log("disable()");
 
-function makeTimeStrFromMins(mins) {
-  if(mins > 60) { // Report usage in hours
-    return Math.round(mins*100/60)/100 + " hours";
-  }
-  if(mins == 1) {
-    return mins + " minute";
-  }
-  else {
-    return mins + " minutes"
-  }
-}
+		// Remove menu from panel
+		Main.panel.menuManager.removeMenu(this.menu);
+		Main.panel._rightBox.remove_actor(this.actor);
+
+		// Remove tracker
+		// let tracker = Shell.WindowTracker.get_default();
+		// tracker.disconnect(this._tracker_id);
+
+		global.display.disconnect(this._focusWindowNotifyId);
+		this._focusWindowNotifyId = 0;
+	}
+});
 
 
 /**
  * From: http://blog.fpmurphy.com/2011/05/more-gnome-shell-customization.html
  */
-function AppUsageMenuItem() {
-  this._init.apply(this, arguments);
-}
+const AppUsageMenuItem = new Lang.Class({
+	Name: 'AppUsageMenuItem',
+	Extends: PopupMenu.PopupBaseMenuItem,
 
-AppUsageMenuItem.prototype = {
-  __proto__: PopupMenu.PopupBaseMenuItem.prototype,
+	_init: function(icon, text1, text2, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
-  _init: function(icon, text1, text2, params) {
-    PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+		this._topBox = new St.BoxLayout();
 
-    this._topBox = new St.BoxLayout();
+		this.label1 = new St.Label({ text: text1, width: 250 });
+		this.label2 = new St.Label({ text: text2, width: 100 });
+		this.icon = icon;
 
-    this.label1 = new St.Label({ text: text1, width: 250 });
-    this.label2 = new St.Label({ text: text2, width: 100 });
-    this.icon = icon;
+		this._topBox.add(this.icon);
+		this._topBox.add(this.label1);
+		this._topBox.add(this.label2);
 
-    this._topBox.add(this.icon);
-    this._topBox.add(this.label1);
-    this._topBox.add(this.label2);
+		this.actor.add(this._topBox);
+	}
+});
 
-    this.actor.add(this._topBox);
-  }
-};
+const WorkspaceTimeMenuItem = new Lang.Class ({
+	Name: 'WorkspaceTimeMenuItem',
+	Extends: PopupMenu.PopupBaseMenuItem,
 
-function WorkspaceTimeMenuItem() {
-  this._init.apply(this, arguments);
-}
+	_init: function(text1, text2, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
-WorkspaceTimeMenuItem.prototype = {
-  __proto__: PopupMenu.PopupBaseMenuItem.prototype,
+		this._topBox = new St.BoxLayout();
 
-  _init: function(text1, text2, params) {
-    PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+		this.label1 = new St.Label({ text: text1, width: 300 });
+		this.label2 = new St.Label({ text: text2, width: 100 });
 
-    this._topBox = new St.BoxLayout();
+		this._topBox.add(this.label1);
+		this._topBox.add(this.label2);
 
-    this.label1 = new St.Label({ text: text1, width: 300 });
-    this.label2 = new St.Label({ text: text2, width: 100 });
+		this.actor.add(this._topBox);
+	}
+});
 
-    this._topBox.add(this.label1);
-    this._topBox.add(this.label2);
+const ProjectMenuItem = new Lang.Class({
+	Name: 'ProjectMenuItem',
+	Extends: PopupMenu.PopupBaseMenuItem,
 
-    this.actor.add(this._topBox);
-  }
-};
 
-function ProjectMenuItem() {
-  this._init.apply(this, arguments);
-}
+	_init: function(text1, text2, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
-ProjectMenuItem.prototype = {
-  __proto__: PopupMenu.PopupBaseMenuItem.prototype,
+		this._topBox = new St.BoxLayout();
 
-  _init: function(text1, text2, params) {
-    PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+		this.label1 = new St.Label({ text: text1, width: 300 });
+		this.label2 = new St.Label({ text: text2, width: 100 });
 
-    this._topBox = new St.BoxLayout();
+		this._topBox.add(this.label1);
+		this._topBox.add(this.label2);
 
-    this.label1 = new St.Label({ text: text1, width: 300 });
-    this.label2 = new St.Label({ text: text2, width: 100 });
+		this.actor.add(this._topBox);
+	}
+});
 
-    this._topBox.add(this.label1);
-    this._topBox.add(this.label2);
+const TotalUsageMenuItem = new Lang.Class({
+	Name: 'TotalUsageMenuItem',
+	Extends: PopupMenu.PopupBaseMenuItem,
 
-    this.actor.add(this._topBox);
-  }
-};
+	_init: function(time, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
 
-function TotalUsageMenuItem() {
-  this._init.apply(this, arguments);
-}
+		this._topBox = new St.BoxLayout();
 
-TotalUsageMenuItem.prototype = {
-  __proto__: PopupMenu.PopupBaseMenuItem.prototype,
+		this.label1 = new St.Label({ text: "Total", width: 300 });
+		this.label2 = new St.Label({ text: time,    width: 100 });
 
-  _init: function(time, params) {
-    PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+		this._topBox.add(this.label1);
+		this._topBox.add(this.label2);
 
-    this._topBox = new St.BoxLayout();
+		this.actor.add(this._topBox);
+	}
+});
 
-    this.label1 = new St.Label({ text: "Total", width: 300 });
-    this.label2 = new St.Label({ text: time,    width: 100 });
+function makeTimeStrFromMins(mins) {
 
-    this._topBox.add(this.label1);
-    this._topBox.add(this.label2);
+	if (mins > 60) { // Report usage in hours
+		return Math.round(mins*100/60)/100 + " hours";
+	}
 
-    this.actor.add(this._topBox);
-  }
+	if (mins == 1) {
+		return mins + " minute";
+	} else {
+		return mins + " minutes"
+	}
 }
