@@ -27,6 +27,8 @@ const St = imports.gi.St;
 
 const APPMENU_ICON_SIZE = 22;
 
+const DEBUG_METHOD_CALL = false;
+
 /*
  * This is a map that converts a window title given as a regexp into
  * a project name.
@@ -93,7 +95,7 @@ const ActivityRecorder = new Lang.Class({
 	Extends: PanelMenu.Button,
 
 	_init: function() {
-		log("_init()");
+		if (DEBUG_METHOD_CALL) log("_init()");
 
 		// Setup the menu button
 		PanelMenu.Button.prototype._init.call(this, St.Align.START);
@@ -127,7 +129,7 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	_reset: function() {
-		log("_reset()");
+		if (DEBUG_METHOD_CALL) log("_reset()");
 
 		// Time spent in certain applications
 		this._usage = {};
@@ -150,7 +152,7 @@ const ActivityRecorder = new Lang.Class({
 
 	// Update the current app and touch the swap time
 	_updateState: function() {
-		log("_updateState()");
+		if (DEBUG_METHOD_CALL) log("_updateState()");
 
 		this._curr_app = this._getCurrentAppId();
 		this._curr_workspace = global.screen.get_active_workspace().index();
@@ -164,7 +166,7 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	mapWindowTitleToProject: function(windowTitle) {
-		log("mapWindowTitleToProject(" + windowTitle + ")");
+		if (DEBUG_METHOD_CALL) log("mapWindowTitleToProject(" + windowTitle + ")");
 
                 for(let i = 0; i < mapWindowTitleToProjectSequence.length; i++) {
 			let project = mapWindowTitleToProjectSequence[i];
@@ -182,7 +184,7 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	ignoreWindowTitle: function(windowTitle) {
-		log("ignoreWindowTitle("+ windowTitle + ")");
+		if (DEBUG_METHOD_CALL) log("ignoreWindowTitle("+ windowTitle + ")");
 
                 for(let i = 0; i < windowTitlesToIgnore.length; i++) {
 			if (windowTitle.match(windowTitlesToIgnore[i]))
@@ -194,7 +196,7 @@ const ActivityRecorder = new Lang.Class({
 
 	// Recalculate the menu which shows time for each app
 	_refreshMenu: function() {
-		log("_refreshMenu");
+		if (DEBUG_METHOD_CALL) log("_refreshMenu");
 
 		let menu = this.menu;
 		menu.removeAll();
@@ -261,7 +263,7 @@ const ActivityRecorder = new Lang.Class({
 
 	// Callback for when app focus changes
 	_onFocusChanged: function() {
-		log("_onFocusChanged()");
+		if (DEBUG_METHOD_CALL) log("_onFocusChanged()");
 
 		this._recordTime();
 		this._updateState();
@@ -271,7 +273,7 @@ const ActivityRecorder = new Lang.Class({
 
 	// Callback for when the menu is opened or closed
 	_onMenuOpenStateChanged: function(menu, isOpen) {
-		log("_onMenuOpenStateChanged(" + menu + ", " + isOpen + ")");
+		if (DEBUG_METHOD_CALL) log("_onMenuOpenStateChanged(" + menu + ", " + isOpen + ")");
 
 		if (isOpen) { // Changed from closed to open
 			this._recordTime();
@@ -283,7 +285,7 @@ const ActivityRecorder = new Lang.Class({
 
 	// Get the current app or null
 	_getCurrentAppId: function() {
-		log("_getCurrentAppId()");
+		if (DEBUG_METHOD_CALL) log("_getCurrentAppId()");
 
 		let tracker = Shell.WindowTracker.get_default();
 		let focusedApp = tracker.focus_app;
@@ -297,7 +299,7 @@ const ActivityRecorder = new Lang.Class({
 
 	// Update the total time for the current app & workspace
 	_recordTime: function() {
-		log("_recordTime()");
+		if (DEBUG_METHOD_CALL) log("_recordTime()");
 
 		let swap_time = this._swap_time;
 		this._swap_time = Date.now();
@@ -316,7 +318,7 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	enable: function() {
-		log("enable()");
+		if (DEBUG_METHOD_CALL) log("enable()");
 
 		// Add menu to panel
 		Main.panel._rightBox.insert_child_at_index(this.actor, 0);
@@ -331,7 +333,7 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	disable: function() {
-		log("disable()");
+		if (DEBUG_METHOD_CALL) log("disable()");
 
 		// Remove menu from panel
 		Main.panel.menuManager.removeMenu(this.menu);
