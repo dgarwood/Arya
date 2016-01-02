@@ -211,11 +211,11 @@ const ActivityRecorder = new Lang.Class({
 		ids.forEach(function(id) {
 			if(usage[id] < 1) return;
 			let app = app_system.lookup_app(id);
-			if(app) {
+			if (app) {
 				let mins = Math.round(usage[id]);
 				let icon = app.create_icon_texture(APPMENU_ICON_SIZE);
 				let str = makeTimeStrFromMins(mins);
-				applicationsSubmenu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
+				applicationsSubmenu.menu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
 				count += 1; total += mins;
 			}
 		});
