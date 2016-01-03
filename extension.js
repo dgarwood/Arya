@@ -41,9 +41,9 @@ const mapWindowTitleToProject = {
 	"Facebook":
 		[ "Facebook", ],
 	"MIF":
-		[ "mif", "facebook", ],
+		[ "mif", "Create post", ],
 	"eBook Download":
-		[ "ebook download", "/data/knjige/" ],
+		[ "ebook download", "/data/knjige/", "ZXDSL 931VII" ],
 	"Browsing":
 		[ "Mozilla Firefox", ],
 	"Unsorted":
@@ -126,6 +126,8 @@ const ActivityRecorder = new Lang.Class({
 
 		this._reset();
 
+		Main.sessionMode.connect('updated', Lang.bind(this, this._onSessionModeUpdated));
+		this._onSessionModeUpdated();
 	},
 
 	_reset: function() {
@@ -269,6 +271,27 @@ const ActivityRecorder = new Lang.Class({
 		this._updateState();
 		this._recordTime();
 		this._refreshMenu();
+	},
+
+	_onSessionModeUpdated: function() {
+		if (DEBUG_METHOD_CALL) log("_onSessionModeUpdated()");
+
+		let inLockScreen = Main.sessionMode.isLocked;
+
+		if (this.inLockScreen !== inLockScreen) {
+			this.inLockScreen = inLockScreen;
+
+			this._recordTime();
+			if (inLockScreen) {
+				this._curr_app = "Screen Saver";
+				this._curr_workspace = -1;
+				this._curr_project = "Screen Saver";
+			} else {
+				this._updateState();
+			}
+			this._recordTime();
+		}
+
 	},
 
 	// Callback for when the menu is opened or closed
