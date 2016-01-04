@@ -24,57 +24,13 @@ const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
+const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
 
 const APPMENU_ICON_SIZE = 22;
 
 const DEBUG_METHOD_CALL = false;
-
-/*
- * This is a map that converts a window title given as a regexp into
- * a project name.
- */
-const mapWindowTitleToProject = {
-	"Arya Plugin Development":
-		[ "arya\@sgros.github.com", ],
-	"Reading ZEMRIS EMail":
-		[ "Inbox - ZEMRIS", ],
-	"Facebook":
-		[ "Facebook", ],
-	"MIF":
-		[ "mif", "Create post", ],
-	"eBook Download":
-		[ "ebook download", "/data/knjige/", "ZXDSL 931VII" ],
-	"Browsing":
-		[ "Mozilla Firefox", ],
-	"Unsorted":
-		[ ".*", ],
-};
-
-/*
- * When mapping window title to project using a map, this is the
- * sequence in which the conversion should take place. Note that
- * we have to use additional list because hash doesn't keep the
- * order!
- */
-const mapWindowTitleToProjectSequence = [
-	"Arya Plugin Development",
-	"Facebook",
-	"MIF",
-	"Browsing",
-	"Unsorted",
-];
-
-/*
- * The following list contains regexes of window titles that should be
- * ignored, i.e. current project should not be changed. This is used,
- * for example, when you are in Firefox browser and you open a modal
- * window with a list of downloads. This window will have title "Library"
- * and obviously it should be ignored, i.e. you should still be in the
- * same project.
- */
-const windowTitlesToIgnore = [
-	"Library",
-];
+const DEBUG_FILE_LOAD = true;
 
 /**
  * TODO:
@@ -96,6 +52,12 @@ const ActivityRecorder = new Lang.Class({
 
 	_init: function() {
 		if (DEBUG_METHOD_CALL) log("_init()");
+
+		// File with description of projects
+		this.filePath = GLib.get_home_dir() + "/.ayra.projects";
+
+		// Load project definitions
+		this._loadProjects();
 
 		// Setup the menu button
 		PanelMenu.Button.prototype._init.call(this, St.Align.START);
@@ -130,6 +92,61 @@ const ActivityRecorder = new Lang.Class({
 		this._onSessionModeUpdated();
 	},
 
+	_loadProjects: function() {
+		if (DEBUG_METHOD_CALL) log("_loadProjects()");
+
+		if (DEBUG_FILE_LOAD) log("Opening project defintion file " + this.filePath);
+
+		let content = Shell.get_file_contents_utf8_sync(this.filePath);
+		let lines = content.toString().split('\n');
+
+		let ignores = false;
+
+		this.mapWindowTitleToProject = {}
+		this.mapWindowTitleToProjectSequence = []
+		this.windowTitlesToIgnore = []
+
+		let project = "Undefined";
+
+		// Parse file
+		for (let i=0; i<lines.length; i++) {
+
+			// Skip empty lines
+			if (lines[i] == '' || lines[i] == '\n' || lines[i][0] == '#') {
+				if (DEBUG_FILE_LOAD) log("Skipping empty line/comment (" + lines[i] + ')');
+				continue;
+			}
+
+			// Are we at the ignore regex-es?
+			if (lines[i] == ':windowTitlesToIgnore') {
+				if (DEBUG_FILE_LOAD) log("Switching to ignores (" + lines[i] + ")");
+				ignores = true;
+				continue;
+			}
+
+			if (ignores) {
+				if (DEBUG_FILE_LOAD) log("Adding new ignore RE (" + lines[i].substr(1) + ")");
+				this.windowTitlesToIgnore.push(lines[i].substr(1));
+				continue;
+			}
+
+			if (lines[i][0] == ':') {
+				if (DEBUG_FILE_LOAD) log("Adding new project definition (" + lines[i].substr(1) + ")");
+				project = lines[i].substr(1);
+				this.mapWindowTitleToProject[project] = [];
+				this.mapWindowTitleToProjectSequence.push(project);
+				continue;
+			}
+
+			if (DEBUG_FILE_LOAD) log("Adding new RE for the current project definition (" + lines[i].substr(1) + ")");
+			this.mapWindowTitleToProject[project].push(lines[i].substr(1));
+		}
+
+		if (DEBUG_FILE_LOAD) log("this.mapWindowTitleToProject=" + this.mapWindowTitleToProject + "\n"
+				+ "this.mapWindowTitleToProjectSequence=" + this.mapWindowTitleToProjectSequence + "\n"
+				+ "this.windowTitlesToIgnore=" + this.windowTitlesToIgnore);
+	},
+
 	_reset: function() {
 		if (DEBUG_METHOD_CALL) log("_reset()");
 
@@ -162,19 +179,19 @@ const ActivityRecorder = new Lang.Class({
 		this._curr_project = null;
 		let win = global.display.focus_window;
 		if (win != null && !this.ignoreWindowTitle(win.title)) {
-			this._curr_project = this.mapWindowTitleToProject(win.title);
+			this._curr_project = this.mapWindowTitleToProjectFunc(win.title);
 			// log("New project: " + this._curr_project);
 		}
 	},
 
-	mapWindowTitleToProject: function(windowTitle) {
-		if (DEBUG_METHOD_CALL) log("mapWindowTitleToProject(" + windowTitle + ")");
+	mapWindowTitleToProjectFunc: function(windowTitle) {
+		if (DEBUG_METHOD_CALL) log("mapWindowTitleToProjectFunc(" + windowTitle + ")");
 
-                for(let i = 0; i < mapWindowTitleToProjectSequence.length; i++) {
-			let project = mapWindowTitleToProjectSequence[i];
-			let regexes = mapWindowTitleToProject[project];
+                for(let i = 0; i < this.mapWindowTitleToProjectSequence.length; i++) {
+			let project = this.mapWindowTitleToProjectSequence[i];
+			let regexes = this.mapWindowTitleToProject[project];
 
-			for( let j = 0; j < regexes.length; j++) {
+			for(let j = 0; j < regexes.length; j++) {
 				if (windowTitle.match(regexes[j])) {
 					// log(project);
 					return project;
@@ -188,8 +205,8 @@ const ActivityRecorder = new Lang.Class({
 	ignoreWindowTitle: function(windowTitle) {
 		if (DEBUG_METHOD_CALL) log("ignoreWindowTitle("+ windowTitle + ")");
 
-                for(let i = 0; i < windowTitlesToIgnore.length; i++) {
-			if (windowTitle.match(windowTitlesToIgnore[i]))
+                for(let i = 0; i < this.windowTitlesToIgnore.length; i++) {
+			if (windowTitle.match(this.windowTitlesToIgnore[i]))
 				return true;
 		};
 
