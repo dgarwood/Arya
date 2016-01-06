@@ -13,7 +13,7 @@ the system should do it for me without me being aware of it doing it.
 But the first, and the most important change, is that I patched extension to
 work with Gnome Shell 3.18 so I can use it on Fedora 23.
 
-Currently, this application tracks two different times:
+Currently, this application tracks three different times:
 * Time spent in each _type_ of application.
 * Time spent on particular Workspace.
 * Time spent in some _project_.
@@ -41,6 +41,7 @@ that then I'll add UI for a user to be able to defined his/her own REs.
 * Make it configurable so that the user can define what to track
 * Take into account idle times
 * When extension doesn't know what we are doing it should ask a user with an option to continue with the current activity
+* If the time spent in certain project/window/app doesn't pass threshold don't count it
 
 ## Install Instructions:
 

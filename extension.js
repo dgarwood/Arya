@@ -32,6 +32,10 @@ const APPMENU_ICON_SIZE = 22;
 const DEBUG_METHOD_CALL = false;
 const DEBUG_FILE_LOAD = true;
 
+const TIME_TRACK_WORKSPACES = true;
+const TIME_TRACK_APPS = true;
+const TIME_TRACK_PROJECTS = true;
+
 /**
  * TODO:
  * * Save/Load to/from a file
@@ -54,10 +58,10 @@ const ActivityRecorder = new Lang.Class({
 		if (DEBUG_METHOD_CALL) log("_init()");
 
 		// File with description of projects
-		this.filePath = GLib.get_home_dir() + "/.ayra.projects";
+		this.fileProjectsPath = GLib.get_home_dir() + "/.ayra.projects";
 
-		// Load project definitions
-		this._loadProjects();
+		// File with statistics
+		this.fileStatsPath = GLib.get_home_dir() + "/.ayra.stats";
 
 		// Setup the menu button
 		PanelMenu.Button.prototype._init.call(this, St.Align.START);
@@ -86,18 +90,49 @@ const ActivityRecorder = new Lang.Class({
 
 		Main.panel.addToStatusArea('arya', this);
 
+		this._swap_time = -1;
 		this._reset();
 
 		Main.sessionMode.connect('updated', Lang.bind(this, this._onSessionModeUpdated));
 		this._onSessionModeUpdated();
 	},
 
+	_reset: function() {
+		if (DEBUG_METHOD_CALL) log("_reset()");
+
+		// Load project definitions
+		this._loadProjects();
+
+		// Load project definitions
+		this._loadStatistics();
+
+		// Time spent in certain applications
+		this._usage = {};
+
+		// Tracking time spent in a single workspace
+		this._workspaceTime = [];
+		for(let i = 0; i < global.screen.n_workspaces; i++) {
+			this._workspaceTime[i] = 0;
+		}
+
+		// Time spent on certain projects
+		this._projects = {};
+
+		// Record current time for metering
+		this._swap_time = Date.now();
+
+		// Record time when measurement started
+		this.start_time = new Date();
+
+		this._refreshMenu();
+	},
+
 	_loadProjects: function() {
 		if (DEBUG_METHOD_CALL) log("_loadProjects()");
 
-		if (DEBUG_FILE_LOAD) log("Opening project defintion file " + this.filePath);
+		if (DEBUG_FILE_LOAD) log("Opening project defintion file " + this.fileProjectsPath);
 
-		let content = Shell.get_file_contents_utf8_sync(this.filePath);
+		let content = Shell.get_file_contents_utf8_sync(this.fileProjectsPath);
 		let lines = content.toString().split('\n');
 
 		let ignores = false;
@@ -147,31 +182,23 @@ const ActivityRecorder = new Lang.Class({
 				+ "this.windowTitlesToIgnore=" + this.windowTitlesToIgnore);
 	},
 
-	_reset: function() {
-		if (DEBUG_METHOD_CALL) log("_reset()");
-
-		// Time spent in certain applications
-		this._usage = {};
-
-		// Tracking time spent in a single workspace
-		this._workspaceTime = [];
-		for(let i = 0; i < global.screen.n_workspaces; i++) {
-			this._workspaceTime[i] = 0;
-		}
-
-		// Time spent on certain projects
-		this._projects = {};
-
-		// Record current time for metering
-		this._swap_time = Date.now();
-
+	_reloadProjects: function() {
+		this._loadProjects();
 		this._updateState();
-		this._refreshMenu();
+	},
+
+	_loadStatistics: function() {
+		if (DEBUG_METHOD_CALL) log("_loadStatistics()");
+
 	},
 
 	// Update the current app and touch the swap time
 	_updateState: function() {
 		if (DEBUG_METHOD_CALL) log("_updateState()");
+
+		// Before updating record current time if there is time
+		if (this._swap_time != -1)
+			this._recordTime();
 
 		this._curr_app = this._getCurrentAppId();
 		this._curr_workspace = global.screen.get_active_workspace().index();
@@ -216,6 +243,8 @@ const ActivityRecorder = new Lang.Class({
 	// Recalculate the menu which shows time for each app
 	_refreshMenu: function() {
 		if (DEBUG_METHOD_CALL) log("_refreshMenu");
+
+		this._updateState();
 
 		let menu = this.menu;
 		menu.removeAll();
@@ -273,21 +302,25 @@ const ActivityRecorder = new Lang.Class({
 			menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 		}
 		menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
+		menu.addMenuItem(new StartTimeMenuItem(this.start_time.toString().substr(4,20)));
+
+		// FIXME: This is temporary until UI is defined to
+		//        enter project definitions
+		let item = new PopupMenu.PopupMenuItem(_("Reload definitions"));
+		item.connect('activate', Lang.bind(this, this._reloadProjects));
+		menu.addMenuItem(item);
 
 		let item = new PopupMenu.PopupMenuItem(_("Clear History"));
 		item.connect('activate', Lang.bind(this, this._reset));
 		menu.addMenuItem(item);
  
 	},
-
+ 
 	// Callback for when app focus changes
 	_onFocusChanged: function() {
 		if (DEBUG_METHOD_CALL) log("_onFocusChanged()");
 
-		this._recordTime();
 		this._updateState();
-		this._recordTime();
-		this._refreshMenu();
 	},
 
 	_onSessionModeUpdated: function() {
@@ -298,15 +331,14 @@ const ActivityRecorder = new Lang.Class({
 		if (this.inLockScreen !== inLockScreen) {
 			this.inLockScreen = inLockScreen;
 
-			this._recordTime();
 			if (inLockScreen) {
+				this._recordTime();
 				this._curr_app = "Screen Saver";
 				this._curr_workspace = -1;
 				this._curr_project = "Screen Saver";
 			} else {
 				this._updateState();
 			}
-			this._recordTime();
 		}
 
 	},
@@ -316,9 +348,6 @@ const ActivityRecorder = new Lang.Class({
 		if (DEBUG_METHOD_CALL) log("_onMenuOpenStateChanged(" + menu + ", " + isOpen + ")");
 
 		if (isOpen) { // Changed from closed to open
-			this._recordTime();
-			this._updateState();
-			this._recordTime();
 			this._refreshMenu();
 		}
 	},
@@ -401,7 +430,7 @@ const AppUsageMenuItem = new Lang.Class({
 
 		this._topBox = new St.BoxLayout();
 
-		this.label1 = new St.Label({ text: text1, width: 250 });
+		this.label1 = new St.Label({ text: text1, width: 300 });
 		this.label2 = new St.Label({ text: text2, width: 100 });
 		this.icon = icon;
 
@@ -443,7 +472,7 @@ const ProjectMenuItem = new Lang.Class({
 		this._topBox = new St.BoxLayout();
 
 		this.label1 = new St.Label({ text: text1, width: 300 });
-		this.label2 = new St.Label({ text: text2, width: 100 });
+		this.label2 = new St.Label({ text: text2, width: 150 });
 
 		this._topBox.add(this.label1);
 		this._topBox.add(this.label2);
@@ -465,7 +494,26 @@ const TotalUsageMenuItem = new Lang.Class({
 		this.label2 = new St.Label({ text: time,    width: 100 });
 
 		this._topBox.add(this.label1);
-		this._topBox.add(this.label2);
+		this._topBox.add(this.label2, { x_align: St.Align.END, });
+
+		this.actor.add(this._topBox);
+	}
+});
+
+const StartTimeMenuItem = new Lang.Class({
+	Name: 'StartTimeMenuItem',
+	Extends: PopupMenu.PopupBaseMenuItem,
+
+	_init: function(time, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+
+		this._topBox = new St.BoxLayout();
+
+		this.label1 = new St.Label({ text: "Start time", width: 250 });
+		this.label2 = new St.Label({ text: time,    width: 150 });
+
+		this._topBox.add(this.label1);
+		this._topBox.add(this.label2, { x_align: St.Align.END, });
 
 		this.actor.add(this._topBox);
 	}
