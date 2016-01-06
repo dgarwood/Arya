@@ -302,7 +302,7 @@ const ActivityRecorder = new Lang.Class({
 			menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 		}
 		menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
-		menu.addMenuItem(new StartTimeMenuItem(this.start_time.toString().substr(4,20)));
+		menu.addMenuItem(new StartTimeMenuItem(this.start_time.toString().substr(4,17)));
 
 		// FIXME: This is temporary until UI is defined to
 		//        enter project definitions
