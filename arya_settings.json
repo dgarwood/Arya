@@ -1,0 +1,46 @@
+{
+   "formatVersion" : "0.1",
+   "projectSeqeunce" : [
+      "Arya Plugin Development",
+      "Facebook",
+      "Browsing",
+      "Twitter",
+      "RSS"
+   ],
+   "ignores" : [
+      "Library",
+      "Enter name of file to save to",
+      "Opening ",
+      "Choose User Profile",
+      "gnome-screenshot",
+      "Insert Break",
+      "LibreOffice 5.0",
+      "PDF Options",
+      "Attach file(s)",
+      "Save Image",
+      "Enigmail Confirm",
+      "Password required",
+      "Sending Message",
+      "Warning: Unresponsive script",
+      "pinentry-gtk-2",
+      "HTML Mail Question",
+      "xclock"
+   ],
+   "projects" : {
+      "Arya Plugin Development" : [
+         "arya@sgros.github.com"
+      ],
+      "RSS" : [
+         "QuiteRSS"
+      ],
+      "Browsing" : [
+         "Mozilla Firefox"
+      ],
+      "Twitter" : [
+         "Gwibber"
+      ],
+      "Facebook" : [
+         "Facebook"
+      ]
+   }
+}
