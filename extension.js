@@ -114,11 +114,12 @@ ActivityRecord.prototype.init = function() {
 	this.windowUsageStat[title] = 0;
 	this.windowUsageHist.push([now, title]);
 
-	if (!this.ignoreWindowTitle(title)) {
-		let project = this.mapWindowTitleToProjectFunc(title);
-		this.projectUsageStat[project] = 0;
-		this.projectUsageHist.push([now, project]);
-	}
+	let project = "Ignored window";
+	if (!this.ignoreWindowTitle(title))
+		project = this.mapWindowTitleToProjectFunc(title);
+		
+	this.projectUsageStat[project] = 0;
+	this.projectUsageHist.push([now, project]);
 };
 
 ActivityRecord.prototype.update = function() {
@@ -190,6 +191,46 @@ ActivityRecord.prototype.update = function() {
 			this.projectUsageHist.push([now, curr_project]);
 		}
 	}
+};
+
+ActivityRecord.prototype.getStats = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.getStats()");
+
+	let result = {};
+
+	let now = new Date();
+
+	result["apps"] = {};
+	let last_app = this.appUsageHist[this.appUsageHist.length - 1][1]
+	let last_start_time = this.appUsageHist[this.appUsageHist.length - 1][0]
+	for (var x in this.appUsageStat)
+		result["apps"][x] = this.appUsageStat[x];
+	result["apps"][last_app] += (now - last_start_time);
+
+	result["workspaces"] = {};
+	let last_workspace = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][1]
+	let last_start_time = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][0]
+	for (var x in this.workspaceUsageStat)
+		result["workspaces"][x] = this.workspaceUsageStat[x];
+	result["workspaces"][last_workspace] += (now - last_start_time);
+
+	result["windows"] = {};
+	let last_window = this.windowUsageHist[this.windowUsageHist.length - 1][1]
+	let last_start_time = this.windowUsageHist[this.windowUsageHist.length - 1][0]
+	for (var x in this.windowUsageStat)
+		result["windows"][x] = this.windowUsageStat[x];
+	result["windows"][last_window] += (now - last_start_time);
+
+	result["projects"] = {};
+	let last_project = this.projectUsageHist[this.projectUsageHist.length - 1][1];
+	let last_start_time = this.projectUsageHist[this.projectUsageHist.length - 1][0];
+	for (var x in this.projectUsageStat)
+		result["projects"][x] = this.projectUsageStat[x];
+	result["projects"][last_project] += (now - last_start_time);
+
+	print(JSON.stringify(result));
+
+	return result;
 };
 
 // Pause recording
@@ -425,7 +466,7 @@ const ActivityRecorder = new Lang.Class({
 	refreshMenu: function() {
 		if (DEBUG_METHOD_CALL) log("ActivityRecorder.refreshMenu()");
 
-		this.activityRecord.pause();
+		let stats = this.activityRecord.getStats();
 
 		let menu = this.menu;
 		menu.removeAll();
@@ -438,7 +479,7 @@ const ActivityRecorder = new Lang.Class({
 
 		let app_system = Shell.AppSystem.get_default();
 
-		let appUsageStat = this.activityRecord.appUsageStat;
+		let appUsageStat = stats["apps"];
 
 		let allApps = Object.keys(appUsageStat).sort();
 
@@ -475,7 +516,7 @@ const ActivityRecorder = new Lang.Class({
 
 		let workspacesSubmenu = new PopupMenu.PopupSubMenuMenuItem('Workspaces', true);
 
-		let workspaceUsageStat = this.activityRecord.workspaceUsageStat;
+		let workspaceUsageStat = stats["workspaces"];
 
 		// Refresh workspace time
 		for(var idx in workspaceUsageStat) {
@@ -492,7 +533,7 @@ const ActivityRecorder = new Lang.Class({
 
 		let windowsSubmenu = new PopupMenu.PopupSubMenuMenuItem('Windows', true);
 
-		let windowUsageStat = this.activityRecord.windowUsageStat;
+		let windowUsageStat = stats["windows"];
 
 		let allWindows = Object.keys(windowUsageStat).sort();
 
@@ -529,7 +570,7 @@ const ActivityRecorder = new Lang.Class({
 		let total = 0;
 		let count = 0;
 
-		let projectUsageStat = this.activityRecord.projectUsageStat;
+		let projectUsageStat = stats["projects"];
 		let allProjects = Object.keys(projectUsageStat).sort();
 
 		for(let i = 0; i < allProjects.length; i++) {
@@ -568,8 +609,6 @@ const ActivityRecorder = new Lang.Class({
 		menu.addMenuItem(item);
  
 		this.activityRecord.saveToFile("/tmp/activityRecord");
-
-		this.activityRecord.resume();
 	},
 
 	_reset: function() {
