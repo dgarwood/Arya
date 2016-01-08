@@ -101,7 +101,8 @@ ActivityRecord.prototype.init = function() {
 	this.appUsageStat[curr_app] = 0;
 	this.appUsageHist.push([now, curr_app]);
 
-	let curr_workspace = global.screen.get_active_workspace().index();
+	let curr_workspace_idx = global.screen.get_active_workspace().index();
+	let curr_workspace = Meta.prefs_get_workspace_name(curr_workspace_idx);
 	this.workspaceUsageStat[curr_workspace] = 0;
 	this.workspaceUsageHist.push([now, curr_workspace]);
 
@@ -141,7 +142,9 @@ ActivityRecord.prototype.update = function() {
 
 	// Update current workspace data.
 	// If current workspace didn't change don't touch anything
-	let curr_workspace = global.screen.get_active_workspace().index();
+
+	let curr_workspace_idx = global.screen.get_active_workspace().index();
+	let curr_workspace = Meta.prefs_get_workspace_name(curr_workspace_idx);
 	let lastWorkspaceName = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][1];
 	if (curr_workspace != lastWorkspaceName) {
 		let lastWorkspaceStartTime = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][0];
@@ -173,7 +176,7 @@ ActivityRecord.prototype.update = function() {
 	}
 
 	if (!this.ignoreWindowTitle(curr_title)) {
-		curr_project = this.mapWindowTitleToProjectFunc(curr_title);
+		let curr_project = this.mapWindowTitleToProjectFunc(curr_title);
 
 		// If current project didn't change don't touch anything
 		let lastProject = this.projectUsageHist[this.projectUsageHist.length - 1][1];
@@ -199,7 +202,7 @@ ActivityRecord.prototype.resume = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.resume()");
 };
 
-// Get the current app or -1 if none focused
+// Get the current app or "-1" if none focused
 ActivityRecord.prototype._getCurrentAppId = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord._getCurrentAppId()");
 
@@ -207,7 +210,7 @@ ActivityRecord.prototype._getCurrentAppId = function() {
 	let focusedApp = tracker.focus_app;
 	// Not an application window
 	if(!focusedApp) {
-		return -1;
+		return "-1";
 	}
 
 	return focusedApp.get_id();
@@ -409,226 +412,132 @@ const ActivityRecorder = new Lang.Class({
 
 		Main.panel.addToStatusArea('arya', this);
 
-		this._swap_time = -1;
-		this._reset();
+		this.activityRecord = new ActivityRecord();
 
 		Main.sessionMode.connect('updated', Lang.bind(this, this._onSessionModeUpdated));
 		this._onSessionModeUpdated();
-
-		this.activityRecord = new ActivityRecord();
-	},
-
-	_reset: function() {
-		if (DEBUG_METHOD_CALL) log("_reset()");
-
-		// Load project definitions
-		this._loadProjects();
-
-		// Load project definitions
-		this._loadStatistics();
-
-		// Time spent in certain applications
-		this._usage = {};
-
-		// Tracking time spent in a single workspace
-		this._workspaceTime = [];
-		for(let i = 0; i < global.screen.n_workspaces; i++) {
-			this._workspaceTime[i] = 0;
-		}
-
-		// Time spent on certain projects
-		this._projects = {};
-
-		// Record current time for metering
-		this._swap_time = Date.now();
-
-		// Record time when measurement started
-		this.start_time = new Date();
-
-		this.activityRecord = new ActivityRecord();
-
-		this._refreshMenu();
-	},
-
-	_loadProjects: function() {
-		if (DEBUG_METHOD_CALL) log("_loadProjects()");
-
-		if (DEBUG_FILE_LOAD) log("Opening project defintion file " + this.fileProjectsPath);
-
-		let content = Shell.get_file_contents_utf8_sync(this.fileProjectsPath);
-		let lines = content.toString().split('\n');
-
-		let ignores = false;
-
-		this.mapWindowTitleToProject = {}
-		this.mapWindowTitleToProjectSequence = []
-		this.windowTitlesToIgnore = []
-
-		let project = "Undefined";
-
-		// Parse file
-		for (let i=0; i<lines.length; i++) {
-
-			// Skip empty lines
-			if (lines[i] == '' || lines[i] == '\n' || lines[i][0] == '#') {
-				if (DEBUG_FILE_LOAD) log("Skipping empty line/comment (" + lines[i] + ')');
-				continue;
-			}
-
-			// Are we at the ignore regex-es?
-			if (lines[i] == ':windowTitlesToIgnore') {
-				if (DEBUG_FILE_LOAD) log("Switching to ignores (" + lines[i] + ")");
-				ignores = true;
-				continue;
-			}
-
-			if (ignores) {
-				if (DEBUG_FILE_LOAD) log("Adding new ignore RE (" + lines[i].substr(1) + ")");
-				this.windowTitlesToIgnore.push(lines[i].substr(1));
-				continue;
-			}
-
-			if (lines[i][0] == ':') {
-				if (DEBUG_FILE_LOAD) log("Adding new project definition (" + lines[i].substr(1) + ")");
-				project = lines[i].substr(1);
-				this.mapWindowTitleToProject[project] = [];
-				this.mapWindowTitleToProjectSequence.push(project);
-				continue;
-			}
-
-			if (DEBUG_FILE_LOAD) log("Adding new RE for the current project definition (" + lines[i].substr(1) + ")");
-			this.mapWindowTitleToProject[project].push(lines[i].substr(1));
-		}
-
-		if (DEBUG_FILE_LOAD) log("this.mapWindowTitleToProject=" + this.mapWindowTitleToProject + "\n"
-				+ "this.mapWindowTitleToProjectSequence=" + this.mapWindowTitleToProjectSequence + "\n"
-				+ "this.windowTitlesToIgnore=" + this.windowTitlesToIgnore);
 	},
 
 	_reloadProjects: function() {
-		this._loadProjects();
-		this._updateState();
-		this.activityRecord.loadFromFile("/tmp/activityRecord");
-	},
-
-	_loadStatistics: function() {
-		if (DEBUG_METHOD_CALL) log("_loadStatistics()");
-
-	},
-
-	// Update the current app and touch the swap time
-	_updateState: function() {
-		if (DEBUG_METHOD_CALL) log("_updateState()");
-
-		// Before updating record current time if there is time
-		if (this._swap_time != -1)
-			this._recordTime();
-
-		this._curr_app = this._getCurrentAppId();
-		this._curr_workspace = global.screen.get_active_workspace().index();
-
-		this._curr_project = null;
-		let win = global.display.focus_window;
-		if (win != null && !this.ignoreWindowTitle(win.title)) {
-			this._curr_project = this.mapWindowTitleToProjectFunc(win.title);
-			// log("New project: " + this._curr_project);
-		}
-
-		this.activityRecord.update();
-	},
-
-	mapWindowTitleToProjectFunc: function(windowTitle) {
-		if (DEBUG_METHOD_CALL) log("mapWindowTitleToProjectFunc(" + windowTitle + ")");
-
-                for(let i = 0; i < this.mapWindowTitleToProjectSequence.length; i++) {
-			let project = this.mapWindowTitleToProjectSequence[i];
-			let regexes = this.mapWindowTitleToProject[project];
-
-			for(let j = 0; j < regexes.length; j++) {
-				if (windowTitle.match(regexes[j])) {
-					// log(project);
-					return project;
-				}
-			}
-		};
-
-		return windowTitle;
-	},
-
-	ignoreWindowTitle: function(windowTitle) {
-		if (DEBUG_METHOD_CALL) log("ignoreWindowTitle("+ windowTitle + ")");
-
-                for(let i = 0; i < this.windowTitlesToIgnore.length; i++) {
-			if (windowTitle.match(this.windowTitlesToIgnore[i]))
-				return true;
-		};
-
-		return false;
 	},
 
 	// Recalculate the menu which shows time for each app
-	_refreshMenu: function() {
-		if (DEBUG_METHOD_CALL) log("_refreshMenu");
+	refreshMenu: function() {
+		if (DEBUG_METHOD_CALL) log("ActivityRecorder.refreshMenu()");
 
-		this._updateState();
+		this.activityRecord.pause();
 
 		let menu = this.menu;
 		menu.removeAll();
 
-		let applicationsSubmenu = new PopupMenu.PopupSubMenuMenuItem('Applications', true);
+		///////////////////////////////////////////////////////////////
+		// Create application submenu
+		///////////////////////////////////////////////////////////////
 
-		let usage = this._usage;
-		let ids = Object.keys(usage).sort(function(x,y) { return (usage[y] - usage[x]) });
+		let applicationsSubmenu = new PopupMenu.PopupSubMenuMenuItem('Applications', true);
 
 		let app_system = Shell.AppSystem.get_default();
 
+		let appUsageStat = this.activityRecord.appUsageStat;
+
+		let allApps = Object.keys(appUsageStat).sort();
+
 		let count = 0;
-		let total = 0;
-		ids.forEach(function(id) {
-			if(usage[id] < 1) return;
-			let app = app_system.lookup_app(id);
+
+		for (let i = 0; i < allApps.length; i++) {
+
+			idx = allApps[i];
+
+			if (idx == "-1")
+				continue;
+
+			let app = app_system.lookup_app(idx);
 			if (app) {
-				let mins = Math.round(usage[id]);
+				let mins = Math.round(appUsageStat[idx] / 1000 / 60);
 				let icon = app.create_icon_texture(APPMENU_ICON_SIZE);
 				let str = makeTimeStrFromMins(mins);
 				applicationsSubmenu.menu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
-				count += 1; total += mins;
+				count += 1;
 			}
-		});
+		};
 
-		if (ids.length > 0) {
+		if (count > 0) {
 			menu.addMenuItem(applicationsSubmenu);
 		}
 
+		///////////////////////////////////////////////////////////////
+		// Create workspaces submenu
+		///////////////////////////////////////////////////////////////
+
 		let workspacesSubmenu = new PopupMenu.PopupSubMenuMenuItem('Workspaces', true);
 
+		let workspaceUsageStat = this.activityRecord.workspaceUsageStat;
+
 		// Refresh workspace time
-		for(let i = 0; i < global.screen.n_workspaces; i++) {
-			let mins = Math.round(this._workspaceTime[i]);
+		for(var idx in workspaceUsageStat) {
+			let mins = Math.round(workspaceUsageStat[idx] / 1000 / 60);
 			let str = makeTimeStrFromMins(mins);
-			let workspaceName = Meta.prefs_get_workspace_name(i);
-			workspacesSubmenu.menu.addMenuItem(new WorkspaceTimeMenuItem(workspaceName, str));
+			workspacesSubmenu.menu.addMenuItem(new WorkspaceTimeMenuItem(idx, str));
 		};
 
 		menu.addMenuItem(workspacesSubmenu);
+
+		///////////////////////////////////////////////////////////////
+		// Create window titles submenu
+		///////////////////////////////////////////////////////////////
+
+		let windowsSubmenu = new PopupMenu.PopupSubMenuMenuItem('Windows', true);
+
+		let windowUsageStat = this.activityRecord.windowUsageStat;
+
+		let allWindows = Object.keys(windowUsageStat).sort();
+
+		// Refresh workspace time
+		for(let i = 0; i < allWindows.length; i++) {
+
+			idx = allWindows[i];
+
+			if (idx == "-1")
+				continue;
+
+			let mins = Math.round(windowUsageStat[idx] / 1000 / 60);
+			let str = makeTimeStrFromMins(mins);
+			windowsSubmenu.menu.addMenuItem(new WorkspaceTimeMenuItem(idx, str));
+		};
+
+		menu.addMenuItem(windowsSubmenu);
 		menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-		let projects = this._projects;
-		let ids = Object.keys(projects);
-		// log('ids = ' + ids.length);
-		ids.forEach(function(id) {
-			let mins = Math.round(projects[id]);
-			let str = makeTimeStrFromMins(mins);
-			// log('mins = ' + mins);
-			// log('str = ' + str);
-			menu.addMenuItem(new ProjectMenuItem(id, str));
-		});
+		///////////////////////////////////////////////////////////////
+		// Create project statistics
+		///////////////////////////////////////////////////////////////
 
-		if (ids.length > 0) {
+		let total = 0;
+		let count = 0;
+
+		let projectUsageStat = this.activityRecord.projectUsageStat;
+		let allProjects = Object.keys(projectUsageStat).sort();
+
+		for(let i = 0; i < allProjects.length; i++) {
+			idx = allProjects[i];
+
+			let mins = Math.round(projectUsageStat[idx] / 1000 / 60);
+			let str = makeTimeStrFromMins(mins);
+			menu.addMenuItem(new ProjectMenuItem(idx, str));
+			total += mins;
+			count += 1;
+		};
+
+		if (count > 0) {
 			menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 		}
+
+		///////////////////////////////////////////////////////////////
+		// Create totals and different actions
+		///////////////////////////////////////////////////////////////
+
 		menu.addMenuItem(new TotalUsageMenuItem(makeTimeStrFromMins(total)));
-		menu.addMenuItem(new StartTimeMenuItem(this.start_time.toString().substr(4,17)));
+		menu.addMenuItem(new StartTimeMenuItem(this.activityRecord.created.toString().substr(4,17)));
 
 		// FIXME: This is temporary until UI is defined to
 		//        enter project definitions
@@ -641,13 +550,19 @@ const ActivityRecorder = new Lang.Class({
 		menu.addMenuItem(item);
  
 		this.activityRecord.saveToFile("/tmp/activityRecord");
+
+		this.activityRecord.resume();
+	},
+
+	_reset: function() {
+		this.activityRecord = new ActivityRecord();
 	},
  
 	// Callback for when app focus changes
 	_onFocusChanged: function() {
 		if (DEBUG_METHOD_CALL) log("_onFocusChanged()");
 
-		this._updateState();
+		this.activityRecord.update();
 	},
 
 	_onSessionModeUpdated: function() {
@@ -655,20 +570,14 @@ const ActivityRecorder = new Lang.Class({
 
 		let inLockScreen = Main.sessionMode.isLocked;
 
+		this.activityRecord.update();
 		if (this.inLockScreen !== inLockScreen) {
 			this.inLockScreen = inLockScreen;
 
-			if (inLockScreen) {
-				this._recordTime();
-				this._curr_app = "Screen Saver";
-				this._curr_workspace = -1;
-				this._curr_project = "Screen Saver";
-
+			if (inLockScreen)
 				this.activityRecord.pause();
-			} else {
-				this._updateState();
+			else
 				this.activityRecord.resume();
-			}
 		}
 
 	},
@@ -677,43 +586,9 @@ const ActivityRecorder = new Lang.Class({
 	_onMenuOpenStateChanged: function(menu, isOpen) {
 		if (DEBUG_METHOD_CALL) log("_onMenuOpenStateChanged(" + menu + ", " + isOpen + ")");
 
-		if (isOpen) { // Changed from closed to open
-			this._refreshMenu();
-		}
-	},
-
-	// Get the current app or null
-	_getCurrentAppId: function() {
-		if (DEBUG_METHOD_CALL) log("_getCurrentAppId()");
-
-		let tracker = Shell.WindowTracker.get_default();
-		let focusedApp = tracker.focus_app;
-		// Not an application window
-		if(!focusedApp) {
-			return null;
-		}
-
-		return focusedApp.get_id();
-	},
-
-	// Update the total time for the current app & workspace
-	_recordTime: function() {
-		if (DEBUG_METHOD_CALL) log("_recordTime()");
-
-		let swap_time = this._swap_time;
-		this._swap_time = Date.now();
-
-		let mins = (this._swap_time - swap_time) / 1000 / 60;
-
-		if (this._curr_app != null) {
-			this._usage[this._curr_app] = (this._usage[this._curr_app] || 0) + mins;
-		}
-
-		this._workspaceTime[this._curr_workspace] += mins;
-
-		if (this._curr_project != null) {
-			this._projects[this._curr_project] = (this._projects[this._curr_project] || 0) + mins;
-		}
+		this.activityRecord.update();
+		if (isOpen)
+			this.refreshMenu();
 	},
 
 	enable: function() {
