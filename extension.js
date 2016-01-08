@@ -454,6 +454,10 @@ const ActivityRecorder = new Lang.Class({
 			let app = app_system.lookup_app(idx);
 			if (app) {
 				let mins = Math.round(appUsageStat[idx] / 1000 / 60);
+
+				if (mins == 0)
+					continue;
+
 				let icon = app.create_icon_texture(APPMENU_ICON_SIZE);
 				let str = makeTimeStrFromMins(mins);
 				applicationsSubmenu.menu.addMenuItem(new AppUsageMenuItem(icon, app.get_name(), str));
@@ -492,6 +496,8 @@ const ActivityRecorder = new Lang.Class({
 
 		let allWindows = Object.keys(windowUsageStat).sort();
 
+		let count = 0;
+
 		// Refresh workspace time
 		for(let i = 0; i < allWindows.length; i++) {
 
@@ -501,11 +507,19 @@ const ActivityRecorder = new Lang.Class({
 				continue;
 
 			let mins = Math.round(windowUsageStat[idx] / 1000 / 60);
+
+			if (mins == 0)
+				continue;
+
 			let str = makeTimeStrFromMins(mins);
 			windowsSubmenu.menu.addMenuItem(new WorkspaceTimeMenuItem(idx, str));
+
+			count++;
 		};
 
-		menu.addMenuItem(windowsSubmenu);
+		if (count > 0)
+			menu.addMenuItem(windowsSubmenu);
+
 		menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
 		///////////////////////////////////////////////////////////////
@@ -522,10 +536,14 @@ const ActivityRecorder = new Lang.Class({
 			idx = allProjects[i];
 
 			let mins = Math.round(projectUsageStat[idx] / 1000 / 60);
+
+			if (mins == 0)
+				continue;
+
 			let str = makeTimeStrFromMins(mins);
 			menu.addMenuItem(new ProjectMenuItem(idx, str));
 			total += mins;
-			count += 1;
+			count++;
 		};
 
 		if (count > 0) {
