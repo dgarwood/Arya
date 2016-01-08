@@ -29,8 +29,8 @@ const Gio = imports.gi.Gio;
 
 const APPMENU_ICON_SIZE = 22;
 
-const DEBUG_METHOD_CALL = false;
-const DEBUG_FILE_LOAD = true;
+const DEBUG_METHOD_CALL = true;
+const DEBUG_FILE_LOAD = false;
 
 const TIME_TRACK_WORKSPACES = true;
 const TIME_TRACK_APPS = true;
@@ -49,6 +49,325 @@ const TIME_TRACK_PROJECTS = true;
 function init() {
   return new ActivityRecorder();
 }
+
+function ActivityRecord() {
+	if (DEBUG_METHOD_CALL) log("new ActivityRecord()");
+
+	this.init();
+}
+
+ActivityRecord.prototype.init = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.init()");
+
+	// When this structure has been created
+	this.created = new Date();
+
+	// Hash indexed by app - how much time was spent in each
+	// application during the course of this. The value of
+	// each element is a cumulative time.
+	this.appUsageStat = {};
+
+	// List of pairs. Each pair has two elements, the applicatoin name
+	// and the time the application was activated. This is used to have
+	// a complete history of all used applications
+	this.appUsageHist = [];
+
+	// These are data structures similar to appUsage* but they keep
+	// window titles instead of application names
+	this.windowUsageStat = {};
+	this.windowUsageHist = [];
+
+	// These are data structures similar to appUsage* but they keep
+	// workspace names instead of application names
+	this.workspaceUsageStat = {};
+	this.workspaceUsageHist = [];
+
+	// These are data structures similar to appUsage* but they keep
+	// projects instead of application names.
+	//
+	// These structures are generated dynamically from the
+	// this.windowUsage* data
+	this.projectUsageStat = {};
+	this.projectUsageHist = [];
+
+	// Initialize REs for mapping window titles to projects and REs
+	// to ignore certain windows.
+	this.loadProjectDefs(GLib.get_home_dir() + "/.ayra.projects");
+
+	// Populate initial values into attributes
+	let now = new Date();
+
+	let curr_app = this._getCurrentAppId();
+	this.appUsageStat[curr_app] = 0;
+	this.appUsageHist.push([now, curr_app]);
+
+	let curr_workspace = global.screen.get_active_workspace().index();
+	this.workspaceUsageStat[curr_workspace] = 0;
+	this.workspaceUsageHist.push([now, curr_workspace]);
+
+	let win = global.display.focus_window;
+	let title = "-1";
+	if (win != null)
+		title = win.title;
+
+	this.windowUsageStat[title] = 0;
+	this.windowUsageHist.push([now, title]);
+
+	if (!this.ignoreWindowTitle(title)) {
+		let project = this.mapWindowTitleToProjectFunc(title);
+		this.projectUsageStat[project] = 0;
+		this.projectUsageHist.push([now, project]);
+	}
+};
+
+ActivityRecord.prototype.update = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.update()");
+
+	let now = new Date();
+
+	// Update current application data.
+	// If current application didn't change don't touch anything
+	let curr_app = this._getCurrentAppId();
+	let lastAppName = this.appUsageHist[this.appUsageHist.length - 1][1];
+	if (curr_app != lastAppName) {
+		let lastAppStartTime = this.appUsageHist[this.appUsageHist.length - 1][0];
+		this.appUsageStat[lastAppName] += (now - lastAppStartTime);
+
+		if (!this.appUsageStat[curr_app])
+			this.appUsageStat[curr_app] = 0;
+
+		this.appUsageHist.push([now, curr_app]);
+	}
+
+	// Update current workspace data.
+	// If current workspace didn't change don't touch anything
+	let curr_workspace = global.screen.get_active_workspace().index();
+	let lastWorkspaceName = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][1];
+	if (curr_workspace != lastWorkspaceName) {
+		let lastWorkspaceStartTime = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][0];
+		this.workspaceUsageStat[lastWorkspaceName] += (now - lastWorkspaceStartTime);
+
+		if (!this.workspaceUsageStat[curr_workspace])
+			this.workspaceUsageStat[curr_workspace] = 0;
+
+		this.workspaceUsageHist.push([now, curr_workspace]);
+	}
+
+	// Update current window data.
+	let win = global.display.focus_window;
+	let curr_title = "-1";
+	if (win != null) {
+		curr_title = win.title;
+	}
+
+	// If current window didn't change don't touch anything
+	let lastWindowTitle = this.windowUsageHist[this.windowUsageHist.length - 1][1];
+	if (curr_title != lastWindowTitle) {
+		let lastWindowTitleStartTime = this.windowUsageHist[this.windowUsageHist.length - 1][0];
+		this.windowUsageStat[lastWindowTitle] += (now - lastWindowTitleStartTime);
+
+		if (!this.windowUsageStat[curr_title])
+			this.windowUsageStat[curr_title] = 0;
+
+		this.windowUsageHist.push([now, curr_title]);
+	}
+
+	if (!this.ignoreWindowTitle(curr_title)) {
+		curr_project = this.mapWindowTitleToProjectFunc(curr_title);
+
+		// If current project didn't change don't touch anything
+		let lastProject = this.projectUsageHist[this.projectUsageHist.length - 1][1];
+		if (curr_project != lastProject) {
+			let lastProjectStartTime = this.projectUsageHist[this.projectUsageHist.length - 1][0];
+			this.projectUsageStat[lastProject] += (now - lastProjectStartTime);
+
+			if (!this.projectUsageStat[curr_project])
+				this.projectUsageStat[curr_project] = 0;
+
+			this.projectUsageHist.push([now, curr_project]);
+		}
+	}
+};
+
+// Pause recording
+ActivityRecord.prototype.pause = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.pause()");
+};
+
+// Resume recording
+ActivityRecord.prototype.resume = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.resume()");
+};
+
+// Get the current app or -1 if none focused
+ActivityRecord.prototype._getCurrentAppId = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord._getCurrentAppId()");
+
+	let tracker = Shell.WindowTracker.get_default();
+	let focusedApp = tracker.focus_app;
+	// Not an application window
+	if(!focusedApp) {
+		return -1;
+	}
+
+	return focusedApp.get_id();
+};
+
+ActivityRecord.prototype.saveToFile = function(filename) {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.saveToFile(" + filename + ")");
+
+	let f = Gio.file_new_for_path(filename);
+	let out = f.replace(null, false, Gio.FileCreateFlags.NONE, null);
+
+	let fileContent = {
+			"appUsageStat": this.appUsageStat,
+			"appUsageHist": this.appUsageHist,
+			"windowUsageStat": this.windowUsageStat,
+			"windowUsageHist": this.windowUsageHist,
+			"workspaceUsageStat": this.workspaceUsageStat,
+			"workspaceUsageHist": this.workspaceUsageHist,
+			"projectUsageStat": this.projectUsageStat,
+			"projectUsageHist": this.projectUsageHist,
+		};
+
+	Shell.write_string_to_stream (out, JSON.stringify(fileContent));
+	out.close(null);
+}
+
+ActivityRecord.prototype.loadFromFile = function(filename) {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.loadFromFile(" + filename + ")");
+
+	let content = Shell.get_file_contents_utf8_sync(filename);
+	let objParsed = JSON.parse(content);
+
+	this.init();
+
+	// Parse application usage and history
+	while (objParsed.appUsageHist.length > 0) {
+		let elem = objParsed.appUsageHist.shift();
+		this.appUsageHist.push([new Date(elem[0]), elem[1]]);
+	}
+
+	for (var idx in objParsed.appUsageStat)
+		this.appUsageStat[idx] = objParsed.appUsageStat[idx];
+
+	// Parse window usage and history
+	while (objParsed.windowUsageHist.length > 0) {
+		let elem = objParsed.windowUsageHist.shift();
+		this.windowUsageHist.push([new Date(elem[0]), elem[1]]);
+	}
+
+	for (var idx in objParsed.windowUsageStat)
+		this.windowUsageStat[idx] = objParsed.windowUsageStat[idx];
+
+	// Parse workspace usage and history
+	while (objParsed.workspaceUsageHist.length > 0) {
+		let elem = objParsed.workspaceUsageHist.shift();
+		this.workspaceUsageHist.push([new Date(elem[0]), elem[1]]);
+	}
+
+	for (var idx in objParsed.workspaceUsageStat)
+		this.workspaceUsageStat[idx] = objParsed.workspaceUsageStat[idx];
+
+	// Parse project usage and history
+	while (objParsed.projectUsageHist.length > 0) {
+		let elem = objParsed.projectUsageHist.shift();
+		this.projectUsageHist.push([new Date(elem[0]), elem[1]]);
+	}
+
+	for (var idx in objParsed.projectUsageStat)
+		this.projectUsageStat[idx] = objParsed.projectUsageStat[idx];
+
+	this.saveToFile(filename + '.bak');
+}
+
+
+ActivityRecord.prototype.loadProjectDefs = function(filename) {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.loadProjectDefs(" + filename + ")");
+
+	if (DEBUG_FILE_LOAD) log("Opening project defintion file " + filename);
+
+	let content = Shell.get_file_contents_utf8_sync(filename);
+	let lines = content.toString().split('\n');
+
+	let ignores = false;
+
+	this.mapWindowTitleToProject = {}
+	this.mapWindowTitleToProjectSequence = []
+	this.windowTitlesToIgnore = []
+
+	let project = "Undefined";
+
+	// Parse file
+	for (let i=0; i<lines.length; i++) {
+
+		// Skip empty lines
+		if (lines[i] == '' || lines[i] == '\n' || lines[i][0] == '#') {
+			if (DEBUG_FILE_LOAD) log("Skipping empty line/comment (" + lines[i] + ')');
+			continue;
+		}
+
+		// Are we at the ignore regex-es?
+		if (lines[i] == ':windowTitlesToIgnore') {
+			if (DEBUG_FILE_LOAD) log("Switching to ignores (" + lines[i] + ")");
+			ignores = true;
+			continue;
+		}
+
+		if (ignores) {
+			if (DEBUG_FILE_LOAD) log("Adding new ignore RE (" + lines[i].substr(1) + ")");
+			this.windowTitlesToIgnore.push(lines[i].substr(1));
+			continue;
+		}
+
+		if (lines[i][0] == ':') {
+			if (DEBUG_FILE_LOAD) log("Adding new project definition (" + lines[i].substr(1) + ")");
+			project = lines[i].substr(1);
+			this.mapWindowTitleToProject[project] = [];
+			this.mapWindowTitleToProjectSequence.push(project);
+			continue;
+		}
+
+		if (DEBUG_FILE_LOAD) log("Adding new RE for the current project definition (" + lines[i].substr(1) + ")");
+		this.mapWindowTitleToProject[project].push(lines[i].substr(1));
+	}
+
+	if (DEBUG_FILE_LOAD) log("this.mapWindowTitleToProject=" + this.mapWindowTitleToProject + "\n"
+			+ "this.mapWindowTitleToProjectSequence=" + this.mapWindowTitleToProjectSequence + "\n"
+			+ "this.windowTitlesToIgnore=" + this.windowTitlesToIgnore);
+};
+
+ActivityRecord.prototype.mapWindowTitleToProjectFunc = function(windowTitle) {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.mapWindowTitleToProjectFunc(" + windowTitle + ")");
+
+	if (windowTitle == "-1")
+		return "No Project Defined";
+
+	for(let i = 0; i < this.mapWindowTitleToProjectSequence.length; i++) {
+		let project = this.mapWindowTitleToProjectSequence[i];
+		let regexes = this.mapWindowTitleToProject[project];
+
+		for(let j = 0; j < regexes.length; j++) {
+			if (windowTitle.match(regexes[j])) {
+				// log(project);
+				return project;
+			}
+		}
+	};
+
+	return "No Project Defined";
+};
+
+ActivityRecord.prototype.ignoreWindowTitle = function(windowTitle) {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.ignoreWindowTitle("+ windowTitle + ")");
+
+	for(let i = 0; i < this.windowTitlesToIgnore.length; i++) {
+		if (windowTitle.match(this.windowTitlesToIgnore[i]))
+			return true;
+	};
+
+	return false;
+};
 
 const ActivityRecorder = new Lang.Class({
 	Name: 'ActivityRecorder',
@@ -95,6 +414,8 @@ const ActivityRecorder = new Lang.Class({
 
 		Main.sessionMode.connect('updated', Lang.bind(this, this._onSessionModeUpdated));
 		this._onSessionModeUpdated();
+
+		this.activityRecord = new ActivityRecord();
 	},
 
 	_reset: function() {
@@ -123,6 +444,8 @@ const ActivityRecorder = new Lang.Class({
 
 		// Record time when measurement started
 		this.start_time = new Date();
+
+		this.activityRecord = new ActivityRecord();
 
 		this._refreshMenu();
 	},
@@ -185,6 +508,7 @@ const ActivityRecorder = new Lang.Class({
 	_reloadProjects: function() {
 		this._loadProjects();
 		this._updateState();
+		this.activityRecord.loadFromFile("/tmp/activityRecord");
 	},
 
 	_loadStatistics: function() {
@@ -209,6 +533,8 @@ const ActivityRecorder = new Lang.Class({
 			this._curr_project = this.mapWindowTitleToProjectFunc(win.title);
 			// log("New project: " + this._curr_project);
 		}
+
+		this.activityRecord.update();
 	},
 
 	mapWindowTitleToProjectFunc: function(windowTitle) {
@@ -314,6 +640,7 @@ const ActivityRecorder = new Lang.Class({
 		item.connect('activate', Lang.bind(this, this._reset));
 		menu.addMenuItem(item);
  
+		this.activityRecord.saveToFile("/tmp/activityRecord");
 	},
  
 	// Callback for when app focus changes
@@ -336,8 +663,11 @@ const ActivityRecorder = new Lang.Class({
 				this._curr_app = "Screen Saver";
 				this._curr_workspace = -1;
 				this._curr_project = "Screen Saver";
+
+				this.activityRecord.pause();
 			} else {
 				this._updateState();
+				this.activityRecord.resume();
 			}
 		}
 
