@@ -30,7 +30,7 @@ const Gio = imports.gi.Gio;
 const APPMENU_ICON_SIZE = 22;
 
 const DEBUG_METHOD_CALL = true;
-const DEBUG_FILE_LOAD = false;
+const DEBUG_FILE_LOAD = true;
 
 const TIME_TRACK_WORKSPACES = true;
 const TIME_TRACK_APPS = true;
@@ -92,7 +92,7 @@ ActivityRecord.prototype.init = function() {
 
 	// Initialize REs for mapping window titles to projects and REs
 	// to ignore certain windows.
-	this.loadProjectDefs(GLib.get_home_dir() + "/.ayra.projects");
+	this.loadProjectDefs(GLib.get_home_dir() + "/.arya_settings.json");
 
 	// Populate initial values into attributes
 	let now = new Date();
@@ -201,11 +201,13 @@ ActivityRecord.prototype.getStats = function() {
 	let now = new Date();
 
 	result["apps"] = {};
-	let last_app = this.appUsageHist[this.appUsageHist.length - 1][1]
-	let last_start_time = this.appUsageHist[this.appUsageHist.length - 1][0]
-	for (var x in this.appUsageStat)
-		result["apps"][x] = this.appUsageStat[x];
-	result["apps"][last_app] += (now - last_start_time);
+	if (this.appUsageHist.length > 0) {
+		let last_app = this.appUsageHist[this.appUsageHist.length - 1][1]
+		let last_start_time = this.appUsageHist[this.appUsageHist.length - 1][0]
+		for (var x in this.appUsageStat)
+			result["apps"][x] = this.appUsageStat[x];
+		result["apps"][last_app] += (now - last_start_time);
+	}
 
 	result["workspaces"] = {};
 	let last_workspace = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][1]
@@ -215,18 +217,22 @@ ActivityRecord.prototype.getStats = function() {
 	result["workspaces"][last_workspace] += (now - last_start_time);
 
 	result["windows"] = {};
-	let last_window = this.windowUsageHist[this.windowUsageHist.length - 1][1]
-	let last_start_time = this.windowUsageHist[this.windowUsageHist.length - 1][0]
-	for (var x in this.windowUsageStat)
-		result["windows"][x] = this.windowUsageStat[x];
-	result["windows"][last_window] += (now - last_start_time);
+	if (this.windowUsageHist.length > 0) {
+		let last_window = this.windowUsageHist[this.windowUsageHist.length - 1][1]
+		let last_start_time = this.windowUsageHist[this.windowUsageHist.length - 1][0]
+		for (var x in this.windowUsageStat)
+			result["windows"][x] = this.windowUsageStat[x];
+		result["windows"][last_window] += (now - last_start_time);
+	}
 
 	result["projects"] = {};
-	let last_project = this.projectUsageHist[this.projectUsageHist.length - 1][1];
-	let last_start_time = this.projectUsageHist[this.projectUsageHist.length - 1][0];
-	for (var x in this.projectUsageStat)
-		result["projects"][x] = this.projectUsageStat[x];
-	result["projects"][last_project] += (now - last_start_time);
+	if (this.projectUsageHist.length > 0) {
+		let last_project = this.projectUsageHist[this.projectUsageHist.length - 1][1];
+		let last_start_time = this.projectUsageHist[this.projectUsageHist.length - 1][0];
+		for (var x in this.projectUsageStat)
+			result["projects"][x] = this.projectUsageStat[x];
+		result["projects"][last_project] += (now - last_start_time);
+	}
 
 	print(JSON.stringify(result));
 
@@ -332,54 +338,66 @@ ActivityRecord.prototype.loadProjectDefs = function(filename) {
 	if (DEBUG_FILE_LOAD) log("Opening project defintion file " + filename);
 
 	let content = Shell.get_file_contents_utf8_sync(filename);
-	let lines = content.toString().split('\n');
+	let objParsed = JSON.parse(content);
 
-	let ignores = false;
+	// If the file format isn't version supported by the plugin
+	// ignore it. TODO: Report error!
+	if (objParsed["formatVersion"] != "0.1")
+		return;
 
 	this.mapWindowTitleToProject = {}
 	this.mapWindowTitleToProjectSequence = []
 	this.windowTitlesToIgnore = []
 
-	let project = "Undefined";
+	for (var x in objParsed["projects"])
+		this.mapWindowTitleToProject[x] = objParsed["projects"][x];
 
-	// Parse file
-	for (let i=0; i<lines.length; i++) {
+	this.windowTitlesToIgnore = objParsed.ignores;
+	this.mapWindowTitleToProjectSequence = objParsed.projectSeqeunce;
 
-		// Skip empty lines
-		if (lines[i] == '' || lines[i] == '\n' || lines[i][0] == '#') {
-			if (DEBUG_FILE_LOAD) log("Skipping empty line/comment (" + lines[i] + ')');
-			continue;
-		}
-
-		// Are we at the ignore regex-es?
-		if (lines[i] == ':windowTitlesToIgnore') {
-			if (DEBUG_FILE_LOAD) log("Switching to ignores (" + lines[i] + ")");
-			ignores = true;
-			continue;
-		}
-
-		if (ignores) {
-			if (DEBUG_FILE_LOAD) log("Adding new ignore RE (" + lines[i].substr(1) + ")");
-			this.windowTitlesToIgnore.push(lines[i].substr(1));
-			continue;
-		}
-
-		if (lines[i][0] == ':') {
-			if (DEBUG_FILE_LOAD) log("Adding new project definition (" + lines[i].substr(1) + ")");
-			project = lines[i].substr(1);
-			this.mapWindowTitleToProject[project] = [];
-			this.mapWindowTitleToProjectSequence.push(project);
-			continue;
-		}
-
-		if (DEBUG_FILE_LOAD) log("Adding new RE for the current project definition (" + lines[i].substr(1) + ")");
-		this.mapWindowTitleToProject[project].push(lines[i].substr(1));
-	}
-
-	if (DEBUG_FILE_LOAD) log("this.mapWindowTitleToProject=" + this.mapWindowTitleToProject + "\n"
-			+ "this.mapWindowTitleToProjectSequence=" + this.mapWindowTitleToProjectSequence + "\n"
-			+ "this.windowTitlesToIgnore=" + this.windowTitlesToIgnore);
+	if (DEBUG_FILE_LOAD)
+		log("this.mapWindowTitleToProject=" + JSON.stringify(this.mapWindowTitleToProject) + "\n\n"
+			+ "this.mapWindowTitleToProjectSequence=" + JSON.stringify(this.mapWindowTitleToProjectSequence) + "\n\n"
+			+ "this.windowTitlesToIgnore=" + JSON.stringify(this.windowTitlesToIgnore) + "\n");
 };
+
+ActivityRecord.prototype.recalculateProjects = function() {
+	this.projectUsageStat = {};
+	this.projectUsageHist = [];
+
+	for(let i = 0; i < this.windowUsageHist.length; i++) {
+
+		let windowStartTime = this.windowUsageHist[i][0];
+		let windowTitle = this.windowUsageHist[i][1];
+
+		if (this.ignoreWindowTitle(windowTitle))
+			continue;
+
+		let curr_project = this.mapWindowTitleToProjectFunc(windowTitle);
+
+		// If current project didn't change don't touch anything
+		if (this.projectUsageHist.length == 0) {
+			this.projectUsageHist.push([windowStartTime, curr_project]);
+		} else {
+
+			let lastProject = this.projectUsageHist[this.projectUsageHist.length - 1][1];
+
+			if (curr_project == lastProject)
+				continue;
+
+			let lastProjectStartTime = this.projectUsageHist[this.projectUsageHist.length - 1][0];
+			this.projectUsageStat[lastProject] += (windowStartTime - lastProjectStartTime);
+
+			if (!this.projectUsageStat[curr_project])
+				this.projectUsageStat[curr_project] = 0;
+
+			this.projectUsageHist.push([now, curr_project]);
+		}
+	}
+};
+
+//	this.windowUsageStat[title] = 0;
+//	this.windowUsageHist.push([now, title]);
 
 ActivityRecord.prototype.mapWindowTitleToProjectFunc = function(windowTitle) {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.mapWindowTitleToProjectFunc(" + windowTitle + ")");
@@ -460,6 +478,8 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	_reloadProjects: function() {
+		this.activityRecord.loadProjectDefs(GLib.get_home_dir() + "/.arya_settings.json");
+		this.activityRecord.recalculateProjects();
 	},
 
 	// Recalculate the menu which shows time for each app
