@@ -94,6 +94,9 @@ ActivityRecord.prototype.init = function() {
 	// to ignore certain windows.
 	this.loadProjectDefs(GLib.get_home_dir() + "/.arya_settings.json");
 
+	// We are not in the paused state
+	this.pause = false;
+
 	// Populate initial values into attributes
 	let now = new Date();
 
@@ -124,6 +127,9 @@ ActivityRecord.prototype.init = function() {
 
 ActivityRecord.prototype.update = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.update()");
+
+	if (this.paused)
+		return;
 
 	let now = new Date();
 
@@ -190,6 +196,17 @@ ActivityRecord.prototype.update = function() {
 
 			this.projectUsageHist.push([now, curr_project]);
 		}
+	} else {
+		if (this.projectUsageHist[this.projectUsageHist.length - 2][1] == "PAUSED") {
+
+			// It might happen that we were paused when the window to ignore
+			// was active and when we resume, if this window is still active,
+			// we'll end up in the project that there will be not tracked.
+			// In that case we have to take the last running window!
+			let lastProject = this.projectUsageHist[this.projectUsageHist.length - 2][1];
+			this.projectUsageHist.push([now, lastProject]);
+
+		}
 	}
 };
 
@@ -239,14 +256,58 @@ ActivityRecord.prototype.getStats = function() {
 	return result;
 };
 
-// Pause recording
 ActivityRecord.prototype.pause = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.pause()");
+
+	let now = new Date();
+
+	// Update current application data.
+	// If current application didn't change don't touch anything
+	let lastAppName = this.appUsageHist[this.appUsageHist.length - 1][1];
+	let lastAppStartTime = this.appUsageHist[this.appUsageHist.length - 1][0];
+	this.appUsageStat[lastAppName] += (now - lastAppStartTime);
+
+	if (!this.appUsageStat["PAUSED"])
+		this.appUsageStat[PAUSED] = 0;
+
+	this.appUsageHist.push([now, "PAUSED"]);
+
+	let lastWorkspaceName = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][1];
+	let lastWorkspaceStartTime = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][0];
+	this.workspaceUsageStat[lastWorkspaceName] += (now - lastWorkspaceStartTime);
+
+	if (!this.workspaceUsageStat["PAUSED"])
+		this.workspaceUsageStat["PAUSED"] = 0;
+
+	this.workspaceUsageHist.push([now, "PAUSED"]);
+
+	let lastWindowTitle = this.windowUsageHist[this.windowUsageHist.length - 1][1];
+	let lastWindowTitleStartTime = this.windowUsageHist[this.windowUsageHist.length - 1][0];
+	this.windowUsageStat[lastWindowTitle] += (now - lastWindowTitleStartTime);
+
+	if (!this.windowUsageStat["PAUSED"])
+		this.windowUsageStat["PAUSED"] = 0;
+
+	this.windowUsageHist.push([now, "PAUSED"]);
+
+	let lastProject = this.projectUsageHist[this.projectUsageHist.length - 1][1];
+	let lastProjectStartTime = this.projectUsageHist[this.projectUsageHist.length - 1][0];
+	this.projectUsageStat[lastProject] += (now - lastProjectStartTime);
+
+	if (!this.projectUsageStat["PAUSED"])
+		this.projectUsageStat["PAUSED"] = 0;
+
+	this.projectUsageHist.push([now, "PAUSED"]);
+
+	this.paused = true;
 };
 
 // Resume recording
 ActivityRecord.prototype.resume = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.resume()");
+
+	this.paused = false;
+	this.update();
 };
 
 // Get the current app or "-1" if none focused
