@@ -25,6 +25,7 @@ const PopupMenu = imports.ui.popupMenu;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
 const GLib = imports.gi.GLib;
+const Mainloop = imports.mainloop;
 const Gio = imports.gi.Gio;
 
 const APPMENU_ICON_SIZE = 22;
@@ -95,7 +96,7 @@ ActivityRecord.prototype.init = function() {
 	this.loadProjectDefs(GLib.get_home_dir() + "/.arya_settings.json");
 
 	// We are not in the paused state
-	this.pause = false;
+	this.paused = false;
 
 	// Populate initial values into attributes
 	let now = new Date();
@@ -197,7 +198,7 @@ ActivityRecord.prototype.update = function() {
 			this.projectUsageHist.push([now, curr_project]);
 		}
 	} else {
-		if (this.projectUsageHist[this.projectUsageHist.length - 2][1] == "PAUSED") {
+		if (this.projectUsageHist[this.projectUsageHist.length - 1][1] == "PAUSED") {
 
 			// It might happen that we were paused when the window to ignore
 			// was active and when we resume, if this window is still active,
@@ -268,7 +269,7 @@ ActivityRecord.prototype.pause = function() {
 	this.appUsageStat[lastAppName] += (now - lastAppStartTime);
 
 	if (!this.appUsageStat["PAUSED"])
-		this.appUsageStat[PAUSED] = 0;
+		this.appUsageStat["PAUSED"] = 0;
 
 	this.appUsageHist.push([now, "PAUSED"]);
 
@@ -439,6 +440,7 @@ ActivityRecord.prototype.recalculateProjects = function() {
 		// If current project didn't change don't touch anything
 		if (this.projectUsageHist.length == 0) {
 			this.projectUsageHist.push([windowStartTime, curr_project]);
+			this.projectUsageStat[curr_project] = 0;
 		} else {
 
 			let lastProject = this.projectUsageHist[this.projectUsageHist.length - 1][1];
@@ -689,7 +691,6 @@ const ActivityRecorder = new Lang.Class({
 		item.connect('activate', Lang.bind(this, this._reset));
 		menu.addMenuItem(item);
  
-		this.activityRecord.saveToFile("/tmp/activityRecord");
 	},
 
 	_reset: function() {
@@ -703,6 +704,7 @@ const ActivityRecorder = new Lang.Class({
 		this.activityRecord.update();
 	},
 
+	// Function that is called when screen is locked/unlocked
 	_onSessionModeUpdated: function() {
 		if (DEBUG_METHOD_CALL) log("_onSessionModeUpdated()");
 
@@ -729,8 +731,34 @@ const ActivityRecorder = new Lang.Class({
 			this.refreshMenu();
 	},
 
+	removeTimeout: function() {
+		if (this.timeout !== undefined) {
+			Mainloop.source_remove(this._timeout);
+			this.timeout = undefined;
+		}
+	},
+
+	periodicActivity: function() {
+
+		// Check if we are in a new day, and if so reset counters
+		let now = new Date();
+
+		if (this.activityRecord.created.getDay() != now.getDay()) {
+			// We entered the next day, so save yesterday's data
+			// and start a new day of tracking
+			this.activityRecord.finish();
+			this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
+			this.activityRecord = new ActivityRecord();
+		} else {
+			// Just save current activity
+			this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
+		}
+
+		return true;
+	},
+
 	enable: function() {
-		if (DEBUG_METHOD_CALL) log("enable()");
+		if (DEBUG_METHOD_CALL) log("ActivityRecorder.enable()");
 
 		// Add menu to panel
 		Main.panel._rightBox.insert_child_at_index(this.actor, 0);
@@ -742,10 +770,14 @@ const ActivityRecorder = new Lang.Class({
 
 		this._focusWindowNotifyId = global.display.connect('notify::focus-window',
 				Lang.bind(this, this._onMenuOpenStateChanged));
+
+		this.activityRecord.resume();
+
+		this.timeout = Mainloop.timeout_add_seconds(60, Lang.bind(this, this.periodicActivity));
 	},
 
 	disable: function() {
-		if (DEBUG_METHOD_CALL) log("disable()");
+		if (DEBUG_METHOD_CALL) log("ActivityRecorder.disable()");
 
 		// Remove menu from panel
 		Main.panel.menuManager.removeMenu(this.menu);
@@ -757,6 +789,10 @@ const ActivityRecorder = new Lang.Class({
 
 		global.display.disconnect(this._focusWindowNotifyId);
 		this._focusWindowNotifyId = 0;
+
+		this.activityRecord.pause();
+
+		this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
 	}
 });
 
@@ -873,4 +909,10 @@ function makeTimeStrFromMins(mins) {
 	} else {
 		return mins + " minutes"
 	}
+}
+
+function toDateStr(date) {
+	return date.getFullYear().toString()
+		+ (date.getMonth() + 101).toString().substr(1)
+		+ (date.getDate() + 100).toString().substr(1);
 }
