@@ -701,7 +701,7 @@ const ActivityRecorder = new Lang.Class({
 	_onFocusChanged: function() {
 		if (DEBUG_METHOD_CALL) log("_onFocusChanged()");
 
-		this.activityRecord.update();
+		this.update();
 	},
 
 	// Function that is called when screen is locked/unlocked
@@ -710,7 +710,7 @@ const ActivityRecorder = new Lang.Class({
 
 		let inLockScreen = Main.sessionMode.isLocked;
 
-		this.activityRecord.update();
+		this.update();
 		if (this.inLockScreen !== inLockScreen) {
 			this.inLockScreen = inLockScreen;
 
@@ -726,7 +726,7 @@ const ActivityRecorder = new Lang.Class({
 	_onMenuOpenStateChanged: function(menu, isOpen) {
 		if (DEBUG_METHOD_CALL) log("_onMenuOpenStateChanged(" + menu + ", " + isOpen + ")");
 
-		this.activityRecord.update();
+		this.update();
 		if (isOpen)
 			this.refreshMenu();
 	},
@@ -736,6 +736,17 @@ const ActivityRecorder = new Lang.Class({
 			Mainloop.source_remove(this._timeout);
 			this.timeout = undefined;
 		}
+	},
+
+	update: function() {
+
+		if (this.activityRecord.created.getDay() != now.getDay()) {
+			this.activityRecord.finish();
+			this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
+			this.activityRecord = new ActivityRecord();
+		}
+
+		this.activityRecord.update();
 	},
 
 	periodicActivity: function() {
