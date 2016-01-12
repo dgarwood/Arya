@@ -257,6 +257,50 @@ ActivityRecord.prototype.getStats = function() {
 	return result;
 };
 
+ActivityRecord.prototype.finish = function() {
+	if (DEBUG_METHOD_CALL) log("ActivityRecord.finish()");
+
+	let now = new Date();
+
+	// Update current application data.
+	// If current application didn't change don't touch anything
+	let lastAppName = this.appUsageHist[this.appUsageHist.length - 1][1];
+	let lastAppStartTime = this.appUsageHist[this.appUsageHist.length - 1][0];
+	this.appUsageStat[lastAppName] += (now - lastAppStartTime);
+
+	if (!this.appUsageStat["FINISH"])
+		this.appUsageStat["FINISH"] = 0;
+
+	this.appUsageHist.push([now, "FINISH"]);
+
+	let lastWorkspaceName = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][1];
+	let lastWorkspaceStartTime = this.workspaceUsageHist[this.workspaceUsageHist.length - 1][0];
+	this.workspaceUsageStat[lastWorkspaceName] += (now - lastWorkspaceStartTime);
+
+	if (!this.workspaceUsageStat["FINISH"])
+		this.workspaceUsageStat["FINISH"] = 0;
+
+	this.workspaceUsageHist.push([now, "FINISH"]);
+
+	let lastWindowTitle = this.windowUsageHist[this.windowUsageHist.length - 1][1];
+	let lastWindowTitleStartTime = this.windowUsageHist[this.windowUsageHist.length - 1][0];
+	this.windowUsageStat[lastWindowTitle] += (now - lastWindowTitleStartTime);
+
+	if (!this.windowUsageStat["FINISH"])
+		this.windowUsageStat["FINISH"] = 0;
+
+	this.windowUsageHist.push([now, "FINISH"]);
+
+	let lastProject = this.projectUsageHist[this.projectUsageHist.length - 1][1];
+	let lastProjectStartTime = this.projectUsageHist[this.projectUsageHist.length - 1][0];
+	this.projectUsageStat[lastProject] += (now - lastProjectStartTime);
+
+	if (!this.projectUsageStat["FINISH"])
+		this.projectUsageStat["FINISH"] = 0;
+
+	this.projectUsageHist.push([now, "FINISH"]);
+};
+
 ActivityRecord.prototype.pause = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.pause()");
 
@@ -739,6 +783,8 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	update: function() {
+
+		let now = new Date();
 
 		if (this.activityRecord.created.getDay() != now.getDay()) {
 			this.activityRecord.finish();
