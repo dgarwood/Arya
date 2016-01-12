@@ -37,6 +37,9 @@ const TIME_TRACK_WORKSPACES = true;
 const TIME_TRACK_APPS = true;
 const TIME_TRACK_PROJECTS = true;
 
+// Time in seconds between two saves of the state into the file
+const SAVE_PERIOD = 300;
+
 /**
  * TODO:
  * * Save/Load to/from a file
@@ -830,7 +833,7 @@ const ActivityRecorder = new Lang.Class({
 
 		this.activityRecord.resume();
 
-		this.timeout = Mainloop.timeout_add_seconds(60, Lang.bind(this, this.periodicActivity));
+		this.timeout = Mainloop.timeout_add_seconds(SAVE_PEROID, Lang.bind(this, this.periodicActivity));
 	},
 
 	disable: function() {
@@ -957,15 +960,10 @@ const StartTimeMenuItem = new Lang.Class({
 
 function makeTimeStrFromMins(mins) {
 
-	if (mins > 60) { // Report usage in hours
-		return Math.round(mins*100/60)/100 + " hours";
-	}
+	let m = mins % 60;
+	let h = (mins - m) / 60;
 
-	if (mins == 1) {
-		return mins + " minute";
-	} else {
-		return mins + " minutes"
-	}
+	return (h + 100).toString().substr(1) + ":" + (m + 100).toString().substr(1);
 }
 
 function toDateStr(date) {
