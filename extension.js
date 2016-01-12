@@ -114,7 +114,7 @@ ActivityRecord.prototype.init = function() {
 	this.workspaceUsageHist.push([now, curr_workspace]);
 
 	let win = global.display.focus_window;
-	let title = "-1";
+	let title = "NONE";
 	if (win != null)
 		title = win.title;
 
@@ -169,7 +169,7 @@ ActivityRecord.prototype.update = function() {
 
 	// Update current window data.
 	let win = global.display.focus_window;
-	let curr_title = "-1";
+	let curr_title = "NONE";
 	if (win != null) {
 		curr_title = win.title;
 	}
@@ -358,7 +358,7 @@ ActivityRecord.prototype.resume = function() {
 	this.update();
 };
 
-// Get the current app or "-1" if none focused
+// Get the current app or "NONE" if none focused
 ActivityRecord.prototype._getCurrentAppId = function() {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord._getCurrentAppId()");
 
@@ -366,7 +366,7 @@ ActivityRecord.prototype._getCurrentAppId = function() {
 	let focusedApp = tracker.focus_app;
 	// Not an application window
 	if(!focusedApp) {
-		return "-1";
+		return "NONE";
 	}
 
 	return focusedApp.get_id();
@@ -512,7 +512,7 @@ ActivityRecord.prototype.recalculateProjects = function() {
 ActivityRecord.prototype.mapWindowTitleToProjectFunc = function(windowTitle) {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.mapWindowTitleToProjectFunc(" + windowTitle + ")");
 
-	if (windowTitle == "-1")
+	if (windowTitle == "NONE")
 		return "No Project Defined";
 
 	for(let i = 0; i < this.mapWindowTitleToProjectSequence.length; i++) {
@@ -619,7 +619,10 @@ const ActivityRecorder = new Lang.Class({
 
 			idx = allApps[i];
 
-			if (idx == "-1")
+			if (idx == "NONE")
+				continue;
+
+			if (idx == "PAUSED")
 				continue;
 
 			let app = app_system.lookup_app(idx);
@@ -650,6 +653,10 @@ const ActivityRecorder = new Lang.Class({
 
 		// Refresh workspace time
 		for(var idx in workspaceUsageStat) {
+
+			if (idx == "PAUSED")
+				continue;
+
 			let mins = Math.round(workspaceUsageStat[idx] / 1000 / 60);
 			let str = makeTimeStrFromMins(mins);
 			workspacesSubmenu.menu.addMenuItem(new WorkspaceTimeMenuItem(idx, str));
@@ -674,7 +681,10 @@ const ActivityRecorder = new Lang.Class({
 
 			idx = allWindows[i];
 
-			if (idx == "-1")
+			if (idx == "NONE")
+				continue;
+
+			if (idx == "PAUSED")
 				continue;
 
 			let mins = Math.round(windowUsageStat[idx] / 1000 / 60);
