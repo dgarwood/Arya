@@ -37,6 +37,7 @@ const TIME_TRACK_WORKSPACES = true;
 const TIME_TRACK_APPS = true;
 const TIME_TRACK_PROJECTS = true;
 
+
 // Time in seconds between two saves of the state into the file
 const SAVE_PERIOD = 300;
 
@@ -54,13 +55,13 @@ function init() {
   return new ActivityRecorder();
 }
 
-function ActivityRecord() {
+function ActivityRecord(settingsFile) {
 	if (DEBUG_METHOD_CALL) log("new ActivityRecord()");
 
-	this.init();
+	this.init(settingsFile);
 }
 
-ActivityRecord.prototype.init = function() {
+ActivityRecord.prototype.init = function(settingsFile) {
 	if (DEBUG_METHOD_CALL) log("ActivityRecord.init()");
 
 	// When this structure has been created
@@ -96,22 +97,23 @@ ActivityRecord.prototype.init = function() {
 
 	// Initialize REs for mapping window titles to projects and REs
 	// to ignore certain windows.
-	this.loadProjectDefs(GLib.get_home_dir() + "/.arya_settings.json");
+	this.loadProjectDefs(settingsFile);
 
 	// We are not in the paused state
 	this.paused = false;
 
-	// Populate initial values into attributes
-	let now = new Date();
-
 	let curr_app = this._getCurrentAppId();
 	this.appUsageStat[curr_app] = 0;
-	this.appUsageHist.push([now, curr_app]);
+	this.appUsageHist.push([this.created, curr_app]);
+
+	for(let i = 0; i < global.screen.n_workspaces; i++) {
+		let curr_workspace = Meta.prefs_get_workspace_name(i);
+		this.workspaceUsageStat[curr_workspace] = 0;
+	}
 
 	let curr_workspace_idx = global.screen.get_active_workspace().index();
 	let curr_workspace = Meta.prefs_get_workspace_name(curr_workspace_idx);
-	this.workspaceUsageStat[curr_workspace] = 0;
-	this.workspaceUsageHist.push([now, curr_workspace]);
+	this.workspaceUsageHist.push([this.created, curr_workspace]);
 
 	let win = global.display.focus_window;
 	let title = "NONE";
@@ -119,14 +121,14 @@ ActivityRecord.prototype.init = function() {
 		title = win.title;
 
 	this.windowUsageStat[title] = 0;
-	this.windowUsageHist.push([now, title]);
+	this.windowUsageHist.push([this.created, title]);
 
 	let project = "Ignored window";
 	if (!this.ignoreWindowTitle(title))
 		project = this.mapWindowTitleToProjectFunc(title);
 		
 	this.projectUsageStat[project] = 0;
-	this.projectUsageHist.push([now, project]);
+	this.projectUsageHist.push([this.created, project]);
 };
 
 ActivityRecord.prototype.update = function() {
@@ -254,8 +256,6 @@ ActivityRecord.prototype.getStats = function() {
 			result["projects"][x] = this.projectUsageStat[x];
 		result["projects"][last_project] += (now - last_start_time);
 	}
-
-	print(JSON.stringify(result));
 
 	return result;
 };
@@ -549,10 +549,10 @@ const ActivityRecorder = new Lang.Class({
 		if (DEBUG_METHOD_CALL) log("_init()");
 
 		// File with description of projects
-		this.fileProjectsPath = GLib.get_home_dir() + "/.ayra.projects";
+		this.fileSettingsFile = GLib.get_user_config_dir() + "/arya/arya_settings.json";
 
-		// File with statistics
-		this.fileStatsPath = GLib.get_home_dir() + "/.ayra.stats";
+		// File with current activities log
+		this.fileLogPath = GLib.get_user_data_dir() + "/arya/";
 
 		// Setup the menu button
 		PanelMenu.Button.prototype._init.call(this, St.Align.START);
@@ -581,14 +581,16 @@ const ActivityRecorder = new Lang.Class({
 
 		Main.panel.addToStatusArea('arya', this);
 
-		this.activityRecord = new ActivityRecord();
+		this.activityRecord = new ActivityRecord(this.fileSettingsFile);
 
 		Main.sessionMode.connect('updated', Lang.bind(this, this._onSessionModeUpdated));
 		this._onSessionModeUpdated();
+
+		this.timeout = Mainloop.timeout_add_seconds(SAVE_PERIOD, Lang.bind(this, this.periodicActivity));
 	},
 
 	_reloadProjects: function() {
-		this.activityRecord.loadProjectDefs(GLib.get_home_dir() + "/.arya_settings.json");
+		this.activityRecord.loadProjectDefs(this.fileSettingsFile);
 		this.activityRecord.recalculateProjects();
 	},
 
@@ -751,7 +753,7 @@ const ActivityRecorder = new Lang.Class({
 	},
 
 	_reset: function() {
-		this.activityRecord = new ActivityRecord();
+		this.activityRecord = new ActivityRecord(this.fileSettingsFile);
 	},
  
 	// Callback for when app focus changes
@@ -801,8 +803,8 @@ const ActivityRecorder = new Lang.Class({
 
 		if (this.activityRecord.created.getDay() != now.getDay()) {
 			this.activityRecord.finish();
-			this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
-			this.activityRecord = new ActivityRecord();
+			this.activityRecord.saveToFile(this.fileLogPath + toDateStr(this.activityRecord.created));
+			this.activityRecord = new ActivityRecord(this.fileSettingsFile);
 		}
 
 		this.activityRecord.update();
@@ -817,11 +819,11 @@ const ActivityRecorder = new Lang.Class({
 			// We entered the next day, so save yesterday's data
 			// and start a new day of tracking
 			this.activityRecord.finish();
-			this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
-			this.activityRecord = new ActivityRecord();
+			this.activityRecord.saveToFile(this.fileLogPath + toDateStr(this.activityRecord.created));
+			this.activityRecord = new ActivityRecord(this.fileSettingsFile);
 		} else {
 			// Just save current activity
-			this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
+			this.activityRecord.saveToFile(this.fileLogPath + toDateStr(this.activityRecord.created));
 		}
 
 		return true;
@@ -842,8 +844,6 @@ const ActivityRecorder = new Lang.Class({
 				Lang.bind(this, this._onMenuOpenStateChanged));
 
 		this.activityRecord.resume();
-
-		this.timeout = Mainloop.timeout_add_seconds(SAVE_PEROID, Lang.bind(this, this.periodicActivity));
 	},
 
 	disable: function() {
@@ -862,7 +862,7 @@ const ActivityRecorder = new Lang.Class({
 
 		this.activityRecord.pause();
 
-		this.activityRecord.saveToFile("/tmp/activityRecord" + "." + toDateStr(this.activityRecord.created));
+		this.activityRecord.saveToFile(this.fileLogPath + toDateStr(this.activityRecord.created));
 	}
 });
 
