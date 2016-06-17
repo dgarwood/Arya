@@ -34,14 +34,14 @@ that then I'll add UI for a user to be able to defined his/her own REs.
 ## Planned Features:
 * Pretty graphs to show app usage over time
 * Activity level monitoring to suggest when you should take a break
-* Save/Load to/from a file
 * Break time according to day, week, month...
 * Introduce better mapping from applications/workspaces to projects, i.e. via regex
 * Integrate with GTG and Hamster
 * Make it configurable so that the user can define what to track
-* Take into account idle times
 * When extension doesn't know what we are doing it should ask a user with an option to continue with the current activity
 * If the time spent in certain project/window/app doesn't pass threshold don't count it
+* Files with state must have meta information stored with them
+* Add indicator of current workspace/project/window/application
 
 ## Install Instructions:
 
